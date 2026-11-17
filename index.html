@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Awase · volunteer builds for Renku OS</title>
+<meta name="description" content="Lend your computer's idle time to build Renku OS packages. Every package is built twice, on two volunteers' machines, and ships only when both builds match.">
+<meta property="og:title" content="Awase">
+<meta property="og:description" content="Volunteer package builds for Renku OS. Two builds or nothing.">
+<link rel="icon" href="assets/awase.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@500;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="site-header">
+  <div class="wrap header-inner">
+    <a class="brand" href="./" aria-label="Awase home">
+      <img src="assets/logo.png" alt="Renku OS" width="600" height="201">
+      <span class="brand-sub">Awase <span class="brand-kanji">合わせ</span></span>
+    </a>
+    <nav id="nav" aria-label="Sections">
+      <a href="#how">How it works</a>
+      <a href="#app">The app</a>
+      <a href="#trust">Trust</a>
+      <a href="#join">Join</a>
+      <a href="#faq">FAQ</a>
+    </nav>
+    <button class="menu-toggle" aria-controls="nav" aria-expanded="false">Menu</button>
+    <a class="btn btn-ghost header-cta" href="https://github.com/idumych/awase/blob/main/PROPOSAL.md">Read the proposal</a>
+  </div>
+</header>
+
+<main id="main">
+
+<section class="hero">
+  <canvas id="loom" aria-hidden="true"></canvas>
+  <div class="wrap hero-inner">
+    <p class="status"><span class="dot"></span>Proposal · not running yet</p>
+    <h1>Lend your idle cores<br>to <span class="ink-fire">Renku</span>.</h1>
+    <p class="name-note"><span lang="ja">合わせ</span> <i>awase</i>: bringing two things together to see whether they match.</p>
+    <p class="lead">Awase is a small app that builds Renku OS packages while your computer would otherwise sit idle, like SETI@home or a mining pool. Every package is built twice, on two volunteers' machines. It ships only when both builds match.</p>
+    <div class="actions">
+      <a class="btn btn-fire" href="#join">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+        Volunteer a machine
+      </a>
+      <a class="btn btn-ghost" href="https://github.com/idumych/awase/blob/main/PROPOSAL.md">Read the proposal</a>
+    </div>
+    <p class="hero-key"><span class="k-node"></span>package <span class="k-thread"></span>a volunteer's build <span class="k-seal">合</span>two builds matched, accepted</p>
+  </div>
+</section>
+
+<section id="how" class="band">
+  <div class="wrap">
+    <p class="label">How it works</p>
+    <h2>From a recipe to your package manager,<br>checked twice on the way.</h2>
+    <ol class="steps">
+      <li>
+        <span class="step-n">1</span>
+        <h3>Install and enroll</h3>
+        <p>Install the client, paste the invitation code a maintainer sent you, and set how much of your machine to lend. The client makes its own signing key.</p>
+      </li>
+      <li>
+        <span class="step-n">2</span>
+        <h3>The pool hands out jobs</h3>
+        <p>When a recipe changes in <a href="https://github.com/RenkuOS/RenkuOSPorts">RenkuOSPorts</a>, the pool server turns it into build jobs. It gives each job to two volunteers, matched to what their machines can take.</p>
+      </li>
+      <li>
+        <span class="step-n">3</span>
+        <h3>Two builds must match</h3>
+        <p>Each client builds inside a sealed guest with no network and signs what it produced. The package is accepted only if both builds come out with the same sha256.</p>
+      </li>
+      <li>
+        <span class="step-n">4</span>
+        <h3>Signed and shipped</h3>
+        <p>A release key holder rebuilds the repository index on their own machine, checks it, and signs it offline. Mirrors copy the plain files. pkgman installs what you trust.</p>
+      </li>
+    </ol>
+  </div>
+</section>
+
+<section id="app" class="band band-paper">
+  <div class="wrap split">
+    <div class="split-text">
+      <p class="label">The app</p>
+      <h2>Quiet when you're working.<br>Busy when you're not.</h2>
+      <p>The client builds only within the limits you set, and pauses the moment you need the machine back. On Renku it's a native app with a Deskbar replicant. On Linux it's a small daemon with a status page.</p>
+      <ul class="ticks">
+        <li><strong>When:</strong> only when idle, always, or between set hours. It can pause on battery power.</li>
+        <li><strong>How much:</strong> cores, memory, and the disk the build cache may use.</li>
+        <li><strong>How hot:</strong> it pauses above the temperature you pick.</li>
+        <li><strong>How long:</strong> the longest job you'll take, so a laptop can stick to short ports and a workstation can take gcc.</li>
+      </ul>
+    </div>
+    <figure class="mock" aria-label="Sketch of the Awase client window">
+      <div class="win">
+        <div class="win-tab"><span class="win-close"></span>Awase</div>
+        <div class="win-body">
+          <div class="win-row"><span>Building</span><b>qt6_base 6.8.2 · x86_64</b></div>
+          <div class="win-bar"><span></span></div>
+          <div class="win-row win-small"><span>Compiling, 1,412 of 2,280 files</span><span>about 38 min left</span></div>
+          <div class="win-queue">
+            <div><i>next</i> libsdl2 2.32.10 · arm64</div>
+            <div><i>next</i> ffmpeg 7.1 · x86_64</div>
+          </div>
+          <div class="win-row"><span>Limits</span><b>when idle · 6 of 8 cores · 85 °C</b></div>
+          <div class="win-buttons"><span class="wbtn">Settings…</span><span class="wbtn wbtn-def">Pause</span></div>
+        </div>
+      </div>
+      <figcaption>A sketch of the native client. The figures are made up.</figcaption>
+    </figure>
+  </div>
+  <div class="wrap">
+    <h3 class="platforms-h">Where it runs</h3>
+    <div class="platforms">
+      <div class="plat">
+        <p class="plat-name">Linux with KVM</p>
+        <p>Builds in a Renku guest under QEMU, with no network. x86_64 and x86_gcc2h run at full speed.</p>
+        <p class="plat-when">Phase 1</p>
+      </div>
+      <div class="plat">
+        <p class="plat-name">arm64 Linux</p>
+        <p>Ampere servers, a Raspberry Pi 5, or any arm64 machine with KVM builds arm64 packages at full speed.</p>
+        <p class="plat-when">Phase 1</p>
+      </div>
+      <div class="plat">
+        <p class="plat-name">Renku OS</p>
+        <p>A native app using HaikuPorter's chroot builds, for packages of the machine's own architecture.</p>
+        <p class="plat-when">Phase 3</p>
+      </div>
+      <div class="plat">
+        <p class="plat-name">Windows and macOS</p>
+        <p>Through QEMU with the system's hypervisor, once it's been tested.</p>
+        <p class="plat-when">Later</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="trust" class="band">
+  <div class="wrap split split-rev">
+    <div class="split-text">
+      <p class="label">Trust</p>
+      <h2>Two builds or nothing.</h2>
+      <p>A compromised or faulty machine can't get a package published on its own, because a second volunteer has to build the identical file. The pool server can't either: it compiles nothing and holds no signing key. If anything disagrees, a maintainer looks before anything ships.</p>
+      <p>Every result is signed by the machine that built it and kept in a public archive. Anyone can check which machines built a package and that they agreed.</p>
+    </div>
+    <div class="ledger" aria-label="Example: two jobs, one matched and one not">
+      <div class="job job-ok">
+        <p class="job-name">libsdl2-2.32.10-3 <span>x86_64</span></p>
+        <p class="hash"><i>A</i>c01f 9a3e 77b2 … 4e10</p>
+        <p class="hash"><i>B</i>c01f 9a3e 77b2 … 4e10</p>
+        <p class="verdict"><span class="seal">合</span>Match. Accepted.</p>
+      </div>
+      <div class="job job-bad">
+        <p class="job-name">ffmpeg-7.1-2 <span>x86_64</span></p>
+        <p class="hash"><i>A</i>5e42 0b19 d3c8 … 91aa</p>
+        <p class="hash"><i>B</i>5e42 7f60 e01d … 2c07</p>
+        <p class="verdict"><span class="flag">!</span>Mismatch. Sent to a maintainer.</p>
+      </div>
+      <p class="ledger-note">Example results. A mismatch means either a recipe that doesn't build the same way twice or a machine that's misbehaving. Either one gets fixed.</p>
+    </div>
+  </div>
+  <div class="wrap">
+    <div class="threats">
+      <div><h3>A volunteer's machine is compromised</h3><p>The other build doesn't match, so the package isn't accepted, and the mismatch points at the machine.</p></div>
+      <div><h3>A client's key is stolen</h3><p>The key is revoked. Every package it helped accept drops back to one build and is rebuilt automatically.</p></div>
+      <div><h3>The pool server is compromised</h3><p>It can't forge a second signed build, and it can't sign the repository. The key holder's own rebuild of the index catches a tampered one.</p></div>
+      <div><h3>A mirror changes a file</h3><p>The package's hash no longer matches the index, and the index is signed.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="join" class="band band-indigo">
+  <div class="wrap split">
+    <div class="split-text">
+      <p class="label">Join</p>
+      <h2>Volunteers start by invitation.</h2>
+      <p>The pool starts with a group of trusted volunteers. A maintainer sends you an invitation code, and your machine joins a public list of builders. Because every package needs two matching builds, the pool could later open to anyone without changing the design.</p>
+      <div class="actions">
+        <a class="btn btn-fire" href="https://github.com/RenkuOS/RenkuOSPorts/issues">Say you'd like to help</a>
+        <a class="btn btn-ghost" href="https://renkuos.org/">About Renku OS</a>
+      </div>
+    </div>
+    <div class="needs">
+      <h3>What you'll need</h3>
+      <ul class="ticks">
+        <li>A Linux machine that can run KVM, or an arm64 board or server with KVM.</li>
+        <li>Room for a build guest and a cache. About 50 GB to start.</li>
+        <li>A connection that can download sources and upload packages.</li>
+        <li>No promise of uptime. If you stop mid-build, the job goes to someone else.</li>
+      </ul>
+      <p class="muted small">There's no token and no money. Your machine's name goes in the list of builders, and you get the satisfaction of a package that works.</p>
+    </div>
+  </div>
+</section>
+
+<section id="roadmap" class="band">
+  <div class="wrap">
+    <p class="label">Roadmap</p>
+    <h2>Four steps, the first one small.</h2>
+    <ol class="road">
+      <li><p class="road-n">Phase 0</p><h3>Measure</h3><p>Build 50 ports twice on two machines and check whether the builds come out identical. Fix what makes them differ.</p></li>
+      <li><p class="road-n">Phase 1</p><h3>A minimal pool</h3><p>The pool server and a headless Linux client, on arm64 first. The current arm64 build machine becomes the first client.</p></li>
+      <li><p class="road-n">Phase 2</p><h3>x86_64 and the app</h3><p>x86_64 jobs, so Renku no longer needs Haiku's build packages. The Linux app with settings and progress, and more volunteers.</p></li>
+      <li><p class="road-n">Phase 3</p><h3>Native, and signed all the way</h3><p>The native Renku client with its Deskbar replicant. pkgman learns to check the repository's signature.</p></li>
+    </ol>
+  </div>
+</section>
+
+<section id="faq" class="band band-paper">
+  <div class="wrap faq-wrap">
+    <p class="label">FAQ</p>
+    <h2>Questions</h2>
+    <div class="faq">
+      <details>
+        <summary>Is this running yet?</summary>
+        <p>No. This is a proposal for the Renku OS contributors to discuss. The <a href="https://github.com/idumych/awase/blob/main/PROPOSAL.md">full proposal</a> lists the decisions the project needs to make first.</p>
+      </details>
+      <details>
+        <summary>Is it like crypto mining?</summary>
+        <p>Only in shape: a pool hands out work and keeps score. There's no currency, no reward and no money. The work is compiling packages that people use.</p>
+      </details>
+      <details>
+        <summary>Will it slow my computer down?</summary>
+        <p>Not while you're using it, if you choose "only when idle". You can also cap cores, memory, disk and temperature, and pause it at any time.</p>
+      </details>
+      <details>
+        <summary>Can my machine break a package?</summary>
+        <p>Not on its own. Every package needs a second, independent build with the same result. A machine whose builds keep disagreeing is checked by a maintainer.</p>
+      </details>
+      <details>
+        <summary>Why not use BOINC?</summary>
+        <p>BOINC, the platform behind SETI@home, does redundancy and credit well. But it expects independent work units, and our builds depend on each other and can run for days. The proposal recommends a small pool of our own that borrows BOINC's ideas, and trying BOINC first.</p>
+      </details>
+      <details>
+        <summary>Do builds need the internet inside the guest?</summary>
+        <p>No. The client downloads sources outside the guest and checks each against the recipe's checksum before the build starts. The guest has no network.</p>
+      </details>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer class="site-footer">
+  <div class="wrap footer-inner">
+    <img src="assets/awase.svg" alt="" width="36" height="36">
+    <p>Awase is a proposal for <a href="https://renkuos.org/">Renku OS</a> and <a href="https://github.com/RenkuOS/RenkuOSPorts">RenkuOSPorts</a>. Site under the MIT licence.</p>
+  </div>
+</footer>
+
+<script src="assets/pool.js"></script>
+</body>
+</html>
