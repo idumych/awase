@@ -1,0 +1,25 @@
+# ~/.config/awase/awase.conf: settings for awase-tui (and its --plain mode).
+# Any of these can also be given on the command line, as --key value.
+
+# The coordinator, and this machine's build client from its Clients page.
+server = https://ports.example.org
+client-id = 00000000-0000-0000-0000-000000000000
+# A file holding only the client's secret, readable by you alone (chmod 600).
+# The secret can come from $AWASE_SECRET instead.
+secret-file = ~/.config/awase/secret
+
+# Run as <command> <port> <version> <outdir>; it leaves the packages it
+# built in <outdir>. scripts/awase-mock-build.sh is a stand-in for trying.
+build-command = ~/awase/client/scripts/awase-mock-build.sh
+
+# Where each job's folder and build log go.
+work-dir = ~/.cache/awase
+
+# Cores to lend (passed to the build command as AWASE_CORES); default half.
+cores = 4
+
+# How often to ask for work when there's none, in seconds.
+poll = 60
+
+# kiln, ember or tide
+theme = kiln

@@ -4,6 +4,7 @@
 #   make HAIKU_CROSS=1    on Linux, for Renku x86_64: first run
 #                         tools/make-sysroot.sh and source .sysroot-x86_64/env.sh
 #   make test             the core's unit tests, with the host compiler
+#   make tui              awase-tui, the terminal client, for Linux
 #
 # Copyright 2026, Ian Dumych, idumych@gmail.com.
 # SPDX-License-Identifier: MIT
@@ -76,7 +77,14 @@ objects/live_test: tests/live_test.cpp $(LIVE_CORE) $(wildcard core/*.h)
 	c++ -std=c++17 -O1 -Wall -Wextra -Wno-unused-parameter -pthread -Icore \
 		-o $@ tests/live_test.cpp $(LIVE_CORE) -lcurl
 
-clean:
-	rm -rf objects $(NAME)
+# The terminal client for Linux servers: awase-tui
+tui: awase-tui
 
-.PHONY: all test clean
+awase-tui: tui/main.cpp $(LIVE_CORE) $(wildcard core/*.h)
+	c++ -std=c++17 -O2 -Wall -Wextra -Wno-unused-parameter -pthread -Icore \
+		-o $@ tui/main.cpp $(LIVE_CORE) -lcurl -lncursesw
+
+clean:
+	rm -rf objects $(NAME) awase-tui
+
+.PHONY: all test tui clean

@@ -36,6 +36,36 @@ A real build command for Renku (HaikuPorter) is still to do.
 The settings, including the client's secret, are kept in
 `~/config/settings/Awase`, readable only by you.
 
+## awase-tui: the terminal client for Linux servers
+
+The same client for machines without a desktop, such as a VPS or a build
+box reached over SSH: the same core (coordinator protocol, build runner,
+live loop) in a tiled terminal layout, after the "Tiled" mockup.
+
+- A top bar: what's building, the cores lent, the CPU temperature when the
+  machine reports one, the coordinator and the time.
+- The repository's published packages (this machine's in orange), the
+  build with its steps and live log, the CPU use of every core, this
+  machine's totals and build-time history, and the coordinator's events.
+- One column on narrow terminals (80×24 works).
+- Keys: `p` pause (the build's process group is stopped, not killed),
+  `+`/`-` cores, `t` theme (kiln, ember, tide), `q` quit (asks first if a
+  build is running, then reports it as stopped).
+- `--plain` prints one timestamped line per event instead, for systemd and
+  log files. `--demo` shows the simulated pool.
+
+```
+make tui                       # needs libcurl and ncursesw
+./awase-tui --server https://ports.example.org --client-id <id> \
+    --secret-file ~/.config/awase/secret --build-command <command>
+```
+
+Settings can live in `~/.config/awase/awase.conf` (see
+`tui/awase.conf.example`). The secret comes from a file only you can read
+(awase-tui refuses one that others can) or from `$AWASE_SECRET`.
+`tui/awase-tui.service` runs `--plain` as a systemd user service, at low
+CPU and I/O priority.
+
 ## The demo pool
 
 The ports in dependency order, builds travelling from each simulated
@@ -55,6 +85,8 @@ core/        portable C++, no Haiku headers:
              Json, Sha256
 app/         the Be API app: the window, its hand-drawn views, and the
              Coordinator window
+tui/         awase-tui, the terminal client for Linux (ncurses), with a
+             systemd unit and an example config
 scripts/     awase-mock-build.sh
 tests/       core_test (the rules), live_test (against portal_stub.py,
              a stand-in for the portal's build-client API)
@@ -91,6 +123,11 @@ stopping mid-build.
   the stand-in server on the host: connecting through the Coordinator
   window, then four queued jobs, three built with the mock command,
   uploaded and published, and one failed and reported with its log.
+- awase-tui on Linux (in alacritty at 150×42 and 80×24): the demo, all
+  three themes, and against the stand-in coordinator: builds published, a
+  failed build reported, the build's log followed live, a closed terminal
+  and SIGTERM in `--plain` both reporting the running build as stopped,
+  and a secret file readable by others refused.
 - Not tested yet: the real portal server (it needs SQL Server and blob
   storage; the stand-in follows its code), a real HaikuPorter build, real
   hardware, the Linux build through Hokku.

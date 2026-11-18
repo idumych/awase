@@ -1,0 +1,32 @@
+# A systemd user service for awase-tui on a Linux server.
+#
+#   mkdir -p ~/.config/systemd/user ~/.config/awase
+#   cp awase-tui.service ~/.config/systemd/user/
+#   cp awase.conf.example ~/.config/awase/awase.conf   # then edit it
+#   (umask 077; echo '<the secret>' > ~/.config/awase/secret)
+#   systemctl --user enable --now awase-tui
+#   loginctl enable-linger "$USER"     # keep it running after you log out
+#   journalctl --user -u awase-tui -f  # watch it
+#
+# Stopping the service reports a running build as "client stopped", so the
+# coordinator hands it out again at once.
+#
+# Copyright 2026, Ian Dumych.
+# SPDX-License-Identifier: MIT
+
+[Unit]
+Description=Awase build client for a RenkuOSPorts coordinator
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=%h/.local/bin/awase-tui --plain
+Restart=on-failure
+RestartSec=30
+# Builds are background work: let everything else on the machine go first.
+Nice=10
+IOSchedulingClass=idle
+TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target
