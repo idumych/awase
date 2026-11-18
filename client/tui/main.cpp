@@ -995,6 +995,11 @@ main(int argc, char** argv)
 	}
 
 	setlocale(LC_ALL, "");
+#ifdef AWASE_STATIC
+	// A static ncurses only knows where its build system kept terminfo.
+	setenv("TERMINFO_DIRS",
+		"/etc/terminfo:/lib/terminfo:/usr/lib/terminfo:/usr/share/terminfo", 0);
+#endif
 	initscr();
 	cbreak();
 	noecho();

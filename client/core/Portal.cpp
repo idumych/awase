@@ -11,6 +11,7 @@
 
 #include <curl/curl.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <time.h>
@@ -88,6 +89,37 @@ PlatformFromToken(const std::string& token)
 			second - first - 1)), claims))
 		return "";
 	return claims["platform"].String();
+}
+
+
+// libcurl looks for CA certificates where the system it was built on keeps
+// them. A static awase-tui runs on other distributions too, so when that
+// file is missing, use SSL_CERT_FILE or the first common bundle found.
+static const char*
+CaBundle()
+{
+	static const std::string sPath = [] {
+		struct stat st;
+		const char* env = getenv("SSL_CERT_FILE");
+		if (env != NULL && stat(env, &st) == 0)
+			return std::string(env);
+		curl_version_info_data* info = curl_version_info(CURLVERSION_NOW);
+		if (info->cainfo != NULL && stat(info->cainfo, &st) == 0)
+			return std::string();
+		static const char* const kBundles[] = {
+			"/etc/ssl/certs/ca-certificates.crt",
+			"/etc/pki/tls/certs/ca-bundle.crt",
+			"/etc/ssl/ca-bundle.pem",
+			"/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem",
+			"/etc/ssl/cert.pem",
+		};
+		for (const char* path : kBundles) {
+			if (stat(path, &st) == 0)
+				return std::string(path);
+		}
+		return std::string();
+	}();
+	return sPath.empty() ? NULL : sPath.c_str();
 }
 
 
@@ -176,6 +208,8 @@ PortalClient::_Request(const std::string& method, const std::string& path,
 	curl_easy_setopt(curl, CURLOPT_TIMEOUT, kTimeoutSeconds);
 	curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
 	curl_easy_setopt(curl, CURLOPT_USERAGENT, kUserAgent);
+	if (CaBundle() != NULL)
+		curl_easy_setopt(curl, CURLOPT_CAINFO, CaBundle());
 	if (method == "POST") {
 		curl_easy_setopt(curl, CURLOPT_POST, 1L);
 		curl_easy_setopt(curl, CURLOPT_POSTFIELDS, jsonBody.c_str());
@@ -346,6 +380,8 @@ PortalClient::Upload(int64_t job, const std::string& path, bool* extra)
 		curl_easy_setopt(curl, CURLOPT_WRITEDATA, &reply);
 		curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
 		curl_easy_setopt(curl, CURLOPT_USERAGENT, kUserAgent);
+		if (CaBundle() != NULL)
+			curl_easy_setopt(curl, CURLOPT_CAINFO, CaBundle());
 		// Large packages: no overall timeout, but give up on a stalled link.
 		curl_easy_setopt(curl, CURLOPT_LOW_SPEED_LIMIT, 1L);
 		curl_easy_setopt(curl, CURLOPT_LOW_SPEED_TIME, 300L);

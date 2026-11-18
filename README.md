@@ -20,7 +20,7 @@ Both are being tested. The portal runs in Docker Compose, with a plan for Azure;
 
 ## The client
 
-The Awase app for Renku OS and `awase-tui` share one core: the portal's build-client API, a build runner that can pause a build's whole process group, and the loop that claims a job, builds it, uploads the packages and reports back, or gives the job back when you quit. Building, testing and settings are in [client/README.md](client/README.md).
+The Awase app for Renku OS and `awase-tui` share one core: the portal's build-client API, a build runner that can pause a build's whole process group, and the loop that claims a job, builds it, uploads the packages and reports back, or gives the job back when you quit. Static `awase-tui` binaries for Linux on x86, x86_64, arm64 and riscv64 are on the [releases page](https://github.com/idumych/awase/releases). Building, testing and settings are in [client/README.md](client/README.md).
 
 ```
 cd client

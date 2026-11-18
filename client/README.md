@@ -82,6 +82,19 @@ live loop) in a tiled terminal layout, after the "Tiled" mockup.
 - `--plain` prints one timestamped line per event instead, for systemd and
   log files. `--demo` shows the simulated pool.
 
+Ready-made static binaries for Linux, one for each platform the portal
+builds for (x86, x86_64, arm64, riscv64), are on the
+[releases page](https://github.com/idumych/awase/releases). They need no
+libraries and run on any distribution:
+
+```
+tar xzf awase-tui-0.2.0-linux-x86_64.tar.gz
+cd awase-tui-0.2.0-linux-x86_64
+./awase-tui --demo
+```
+
+Or build it yourself:
+
 ```
 make tui                       # needs libcurl and ncursesw
 ./awase-tui --server https://ports.example.org --client-id <id> \
@@ -120,7 +133,8 @@ tui/         awase-tui, the terminal client for Linux (ncurses), with a
 scripts/     awase-mock-build.sh
 tests/       core_test (the rules), live_test (against portal_stub.py,
              a stand-in for the portal's build-client API)
-tools/       make-sysroot.sh (cross-building), make-icon.py (the icon)
+tools/       make-sysroot.sh (cross-building), make-icon.py (the icon),
+             release-tui.sh and alpine-sysroot.py (the Linux release)
 ```
 
 ## Building
@@ -136,6 +150,15 @@ sh tools/make-sysroot.sh ~/path/to/Source/generated.x86_64
 . .sysroot-x86_64/env.sh
 make HAIKU_CROSS=1
 ```
+
+The Linux release, `sh tools/release-tui.sh 0.2.0`, cross-compiles a
+static awase-tui for x86, x86_64, arm64 and riscv64 on any Linux host with
+clang, lld and python3. It unpacks Alpine's musl, OpenSSL, zlib and
+ncurses packages as sysroots (as plain archives; nothing from them is run)
+and builds libcurl itself with HTTP and HTTPS only, then writes
+`release/awase-tui-<version>-linux-<arch>.tar.gz` and `SHA256SUMS`. The
+binaries find CA certificates and terminfo where the common distributions
+keep them (`SSL_CERT_FILE` and `TERMINFO_DIRS` override).
 
 `make test` builds and runs the tests with the host compiler (it needs
 libcurl and python3): the pool's rules, then the coordinator client
@@ -171,6 +194,11 @@ back).
   effect), and the Linux reading on a laptop (its `TCPU_PCI` zone). The
   Renku reading was cross-built only: QEMU has no thermal sensor, and it
   hasn't run on Renku hardware yet.
+- The 0.2.0 Linux release: each of the four static binaries (arm64 and
+  riscv64 under qemu-user) built a job against the stand-in in `--plain`,
+  twice, to Succeeded; the full-screen demo drew in a pseudo-terminal;
+  HTTPS reached a real site and refused a self-signed certificate. Not
+  yet run on real arm64, riscv64 or 32-bit x86 hardware.
 - Not tested yet: the real portal server (it needs SQL Server and blob
   storage; the stand-in follows its code), a real HaikuPorter build, real
   hardware, the Linux build through Hokku.

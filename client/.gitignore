@@ -2,3 +2,5 @@
 /Awase
 /.sysroot-x86_64/
 /awase-tui
+/.release-work/
+/release/
