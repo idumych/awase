@@ -2,6 +2,8 @@
 
 *Draft, 17 November 2026. A proposal for the Renku OS contributors to discuss before anything is built.*
 
+> **Since then (18 November 2026):** the two-build check now runs in Dru's [RenkuOSPorts portal](https://github.com/Druware/RenkuOSPorts-Portal), which takes the place of the pool server described here, and Awase is a build client for it. Some parts changed on the way: builds are compared by contents rather than bytes, and signing is still to come ([portal issue #2](https://github.com/Druware/RenkuOSPorts-Portal/issues/2)). [How it runs](https://idumych.github.io/awase/orchestration.html) describes the pool as it is. This document is kept as it was written.
+
 Awase (合わせ, "bringing two things together to see whether they match") is an app that volunteers install to lend their computer's spare time to building [RenkuOSPorts](https://github.com/RenkuOS/RenkuOSPorts) packages. It works like SETI@home or a mining pool. A pool server hands out build jobs and keeps the score. Every package is built twice, on two volunteers' machines, and published only if both builds match. So neither a single volunteer nor the pool server can slip a bad package in.
 
 ## Where things stand

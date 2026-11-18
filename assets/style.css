@@ -276,3 +276,9 @@ p{margin:0 0 1em}
    label colour above those rules. */
 .split-text p.label,.doc p.label{color:var(--fire-2)}
 .band-paper .split-text p.label{color:var(--seal)}
+
+/* The real client on the home page, and code outside the document pages */
+.mock img{width:100%;border-radius:8px;box-shadow:10px 14px 34px -10px rgb(27 26 34 / .45)}
+main:not(.doc) code{font:.88em var(--mono);background:rgb(127 127 127 / .14);padding:1px 5px;border-radius:3px}
+.lead a{color:var(--washi);text-decoration-color:var(--fire)}
+.road li.done::before{border-color:var(--fire);background:var(--fire)}
