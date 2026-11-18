@@ -1,0 +1,38 @@
+name: haiku
+
+# The amd64 .hpkg, built on Haiku R1/beta6 (cross-platform-actions runs a Haiku VM on the
+# GitHub runner), so it installs on Haiku R1/beta6 and Renku OS. Run it by hand before a
+# release (gh workflow run haiku.yml --ref <branch>) and test that artifact. The arm64 .hpkg
+# is cross-built for Renku (packaging/build-hpkg-arm64.sh).
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  hpkg:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the .hpkg on Haiku R1/beta6
+        uses: cross-platform-actions/action@v1.6.0
+        with:
+          operating_system: haiku
+          version: r1beta6
+          architecture: x86-64
+          memory: 4G
+          cpu_count: 4
+          shell: bash
+          run: |
+            cd client
+            . ./haiku-app.env
+            pkgman install -y gcc make haiku_devel $HPKG_BUILD_DEPS
+            sh packaging/build-hpkg.sh
+            package list -i awase-*-x86_64.hpkg | head -20
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hpkg-x86_64
+          path: client/*-x86_64.hpkg
