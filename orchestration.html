@@ -1,0 +1,356 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>How Awase runs · Awase</title>
+<meta name="description" content="How the Awase pool is orchestrated: the orchestrator and how it's deployed, platform definitions, and how build jobs are scheduled.">
+<link rel="icon" href="assets/awase.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@500;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body class="doc-page">
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="site-header doc-header">
+  <div class="wrap header-inner">
+    <a class="brand" href="./" aria-label="Awase home">
+      <img src="assets/logo.png" alt="Renku OS" width="600" height="201">
+      <span class="brand-sub">Awase <span class="brand-kanji">合わせ</span></span>
+    </a>
+    <nav id="nav" aria-label="Sections">
+      <a href="#overview">Overview</a>
+      <a href="#deploy">Deployment</a>
+      <a href="#platforms">Platforms</a>
+      <a href="#scheduling">Scheduling</a>
+    </nav>
+    <button class="menu-toggle" aria-controls="nav" aria-expanded="false">Menu</button>
+    <a class="btn btn-ghost header-cta" href="./">Back to the site</a>
+  </div>
+</header>
+
+<main id="main" class="doc">
+<div class="wrap doc-wrap">
+
+<div class="doc-intro">
+  <p class="status"><span class="dot"></span>Design · not running yet</p>
+  <h1>How Awase runs</h1>
+  <p class="lead">How the pool is orchestrated, how the orchestrator is deployed, how platforms are defined, and how build jobs are scheduled. This builds on the <a href="https://github.com/idumych/awase/blob/main/PROPOSAL.md">proposal</a>. Where it names a number, the number is a starting value to tune, not a measurement.</p>
+</div>
+
+<aside class="doc-toc" aria-label="On this page">
+  <p class="label">On this page</p>
+  <ol>
+    <li><a href="#overview">The pieces</a></li>
+    <li><a href="#lifecycle">A job's life</a></li>
+    <li><a href="#deploy">Deploying the orchestrator</a></li>
+    <li><a href="#platforms">Platform definitions</a></li>
+    <li><a href="#scheduling">Scheduling</a></li>
+    <li><a href="#failure">When things go wrong</a></li>
+    <li><a href="#open">Open questions</a></li>
+  </ol>
+</aside>
+
+<section id="overview">
+  <p class="label">1 · Overview</p>
+  <h2>The pieces</h2>
+  <p>Awase is a pull system, like a mining pool or BOINC. Volunteers' clients ask the orchestrator for work. The orchestrator never connects to a volunteer's machine, so volunteers need no open ports and no fixed address.</p>
+  <div class="lanes" role="img" aria-label="Git feeds the orchestrator; the orchestrator leases jobs to volunteers' clients; clients send signed results back and upload packages to storage; accepted packages are assembled, signed offline and published.">
+    <div class="lane">
+      <p class="lane-h">Git</p>
+      <div class="node">RenkuOSPorts<small>recipes</small></div>
+      <div class="node">awase/platforms<small>platform files</small></div>
+    </div>
+    <div class="link"><span>commits</span></div>
+    <div class="lane lane-main">
+      <p class="lane-h">Orchestrator <small>one small server</small></p>
+      <div class="node">Watcher</div>
+      <div class="down"></div>
+      <div class="node">Planner</div>
+      <div class="down"></div>
+      <div class="node node-db">Job queue<small>SQLite</small></div>
+      <div class="pair"><div class="node">Scheduler</div><div class="node">Validator</div></div>
+    </div>
+    <div class="link link-two"><span>leases →</span><span>← signed results</span></div>
+    <div class="lane">
+      <p class="lane-h">Volunteers</p>
+      <div class="node node-fire">Client A<small>sealed guest</small></div>
+      <div class="node node-fire">Client B<small>sealed guest</small></div>
+    </div>
+    <div class="link"><span>hpkg uploads</span></div>
+    <div class="lane">
+      <p class="lane-h">Storage and publishing</p>
+      <div class="node node-db">Object storage</div>
+      <div class="down"></div>
+      <div class="node">Assembler<small>CI job</small></div>
+      <div class="down"></div>
+      <div class="node node-seal">Key holder<small>signs offline</small></div>
+      <div class="down"></div>
+      <div class="node">Download server<small>and mirrors</small></div>
+    </div>
+  </div>
+  <div class="defs">
+    <div><h3>Watcher</h3><p>Follows RenkuOSPorts <code>main</code>, by a webhook and a poll every five minutes in case the webhook is missed. Only merged commits count, so no pull request ever reaches a volunteer.</p></div>
+    <div><h3>Planner</h3><p>Turns a new commit into jobs, one per port and platform, with HaikuPorter's <code>--ports-for-files</code>, the logic the arm64 runner's <code>update-packages.sh</code> uses today. It also reads each port's dependencies, so jobs form a graph.</p></div>
+    <div><h3>Scheduler</h3><p>Answers clients' requests for work: picks a job the client can build, and leases one copy of it to the client. <a href="#scheduling">Section 5</a> covers how it chooses.</p></div>
+    <div><h3>Validator</h3><p>Checks each signed result against the client's key, and compares the two results of a job. A package whose two builds match is accepted, which can make its dependents buildable.</p></div>
+    <div><h3>Assembler</h3><p>Runs <code>package_repo</code> over the accepted packages to make a candidate repository. It's a CI job, not part of the server. It compiles nothing and holds no secrets.</p></div>
+    <div><h3>Key holder</h3><p>A person, not a service. They rebuild the candidate on their own machine, check it gives the same <code>repo.sha256</code>, and sign it. The key never touches the orchestrator.</p></div>
+  </div>
+</section>
+
+<section id="lifecycle">
+  <p class="label">2 · Lifecycle</p>
+  <h2>A job's life</h2>
+  <pre class="mermaid">
+sequenceDiagram
+  participant G as RenkuOSPorts
+  participant O as Orchestrator
+  participant A as Client A
+  participant B as Client B
+  participant S as Object storage
+  G->>O: commit on main (webhook or poll)
+  O->>O: plan jobs: zlib is ready, libpng16 waits for zlib
+  A->>O: POST /work (platforms, cores, memory, max hours)
+  O-->>A: lease: zlib 1.3.1-1 x86_64, inputs snapshot, deadline
+  B->>O: POST /work
+  O-->>B: lease: the second copy, a different owner
+  loop every 60 s while building
+    A->>O: heartbeat (step, progress)
+  end
+  A->>S: upload hpkg (by sha256)
+  A->>O: signed result (output sha256s)
+  B->>S: upload hpkg
+  B->>O: signed result
+  O->>O: hashes match: accept zlib, unblock libpng16
+  </pre>
+  <div class="states">
+    <span class="st">waiting</span><span class="arr">→</span>
+    <span class="st">ready</span><span class="arr">→</span>
+    <span class="st">leased ×2</span><span class="arr">→</span>
+    <span class="st">one result</span><span class="arr">→</span>
+    <span class="st st-seal">accepted</span>
+  </div>
+  <p class="muted small">A mismatch sends the job back to <em>ready</em>, with both results and logs kept for a maintainer. An expired lease frees its copy for another client.</p>
+</section>
+
+<section id="deploy">
+  <p class="label">3 · Deployment</p>
+  <h2>Deploying the orchestrator</h2>
+  <p>The orchestrator is meant to be small enough that one modest server runs it, and boring enough that anyone with the repository can rebuild it.</p>
+
+  <div class="scroll">
+  <table>
+    <thead><tr><th>Part</th><th>What</th><th>Why</th></tr></thead>
+    <tbody>
+      <tr><td>Service</td><td>One process serving the client API, the scheduler and the validator, built as a container image in this repository's CI.</td><td>One thing to run, update and watch.</td></tr>
+      <tr><td>State</td><td>SQLite in WAL mode, streamed to object storage with Litestream.</td><td>The state is small: jobs, leases and results for one ports tree. No database server to run.</td></tr>
+      <tr><td>Packages and logs</td><td>S3-compatible object storage, with keys named by sha256.</td><td>Clients upload straight to storage with a short-lived URL, so large files never pass through the service.</td></tr>
+      <tr><td>TLS and routing</td><td>Caddy in front, with automatic certificates.</td><td>HTTPS with no manual renewals.</td></tr>
+      <tr><td>Host</td><td>One VM with 2 vCPUs, 4 GB of memory and 40 GB of disk. To start with it could be the server that hosts <code>renkuos.freemyip.com</code>, then later an EU host, as charter §6 suggests.</td><td>The orchestrator does no building, so it needs little.</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>How a change reaches the server</h3>
+  <ol class="flow">
+    <li><strong>A pull request</strong> changes the service, its configuration in <code>deploy/</code>, or a platform file, and is reviewed like any other change.</li>
+    <li><strong>A merge to <code>main</code></strong> builds and tests the container image in CI and publishes it to the GitHub container registry, tagged with the commit.</li>
+    <li><strong>A release tag</strong> deploys it. The deploy job waits for a maintainer's approval in a protected GitHub environment, then runs <code>docker compose pull &amp;&amp; docker compose up -d</code> on the server over SSH.</li>
+    <li><strong>Rolling back</strong> means deploying the previous tag. The database schema only ever grows (new tables and columns, never a destructive change), so an older image still reads it.</li>
+  </ol>
+<pre><code># deploy/compose.yaml (sketch)
+services:
+  awase:
+    image: ghcr.io/idumych/awase-orchestrator:${TAG}
+    env_file: /etc/awase/orchestrator.env   # storage keys, invitation secret
+    volumes: [ "state:/var/lib/awase" ]
+  litestream:
+    image: litestream/litestream:0.3
+    command: replicate
+    volumes: [ "state:/var/lib/awase", "./litestream.yml:/etc/litestream.yml:ro" ]
+  caddy:
+    image: caddy:2
+    ports: [ "80:80", "443:443" ]
+    volumes: [ "./Caddyfile:/etc/caddy/Caddyfile:ro", "caddy:/data" ]
+volumes: { state: {}, caddy: {} }</code></pre>
+
+  <h3>What the server holds, and what it doesn't</h3>
+  <div class="two">
+    <div class="box"><p class="box-h">On the server</p><ul class="ticks"><li>Storage credentials, to sign upload and download URLs</li><li>The secret that invitation codes are checked against</li><li>Clients' <em>public</em> keys</li><li>The job queue, leases and results</li></ul></div>
+    <div class="box box-no"><p class="box-h">Never on the server</p><ul class="ticks"><li>The repository signing key</li><li>Clients' private keys</li><li>Any compiler or build guest. It runs no build code.</li></ul></div>
+  </div>
+  <p>If the server is lost, a new one is set up from <code>deploy/</code>, its database is restored from Litestream, and the watcher replays RenkuOSPorts from the last commit it processed. Results are signed by the clients and the packages are in storage, so nothing that was accepted needs building again.</p>
+</section>
+
+<section id="platforms">
+  <p class="label">4 · Platforms</p>
+  <h2>Platform definitions</h2>
+  <p>A <em>platform</em> is what a package is built for. A <em>host type</em> is a kind of machine that can build for it. Both are plain files in git, so adding an architecture or a new guest image is a reviewed pull request.</p>
+
+  <h3>A platform file</h3>
+<pre><code># platforms/x86_64.yaml
+name: x86_64
+tier: 1                         # D4: Tier 1 blocks releases
+haikuporter:
+  target: x86_64                # HaikuPorter's TARGET_ARCHITECTURE
+  secondary: []                 # x86_gcc2h: target x86_gcc2, secondary [x86]
+  revision: 1a2b3c4             # pinned HaikuPorter commit
+guest:
+  image: https://…/awase-guest-x86_64-hrev59210.raw.zst
+  sha256: 77ae…                 # every copy of a job uses exactly this image
+  network: none
+inputs:
+  repository: renkuosports-x86_64   # build packages come from accepted packages
+quorum: 2                       # matching builds needed to accept a package
+quorum_overrides:               # stricter for the toolchain and crypto
+  gcc: 3
+  binutils: 3
+  openssl3: 3
+single_build: []                # ports accepted from one build plus a maintainer
+host_types: [linux-kvm-x86_64, renku-x86_64]</code></pre>
+
+  <h3>The platforms planned</h3>
+  <div class="scroll">
+  <table>
+    <thead><tr><th>Platform</th><th>Tier</th><th>Built by</th><th>Notes</th></tr></thead>
+    <tbody>
+      <tr><td><code>x86_64</code></td><td>1</td><td>Linux with KVM, Renku x86_64</td><td>Most of the work. Phase 2.</td></tr>
+      <tr><td><code>x86_gcc2h</code></td><td>1</td><td>Linux with KVM, Renku x86</td><td>A hybrid: gcc2 as the primary architecture, x86 with a modern gcc as the secondary. One platform file covers both.</td></tr>
+      <tr><td><code>arm64</code></td><td>2</td><td>arm64 Linux with KVM; x86_64 Linux emulating, for clients that opt in to long jobs</td><td>Phase 1, taking over from today's single runner.</td></tr>
+      <tr><td><code>riscv64</code></td><td>2</td><td>Emulated only, for now</td><td>Later. It starts on the single-build list, as any bootstrap does.</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>Host types</h3>
+<pre><code># host-types/linux-kvm-x86_64.yaml
+name: linux-kvm-x86_64
+runs: qemu-system-x86_64 -accel kvm
+builds: [x86_64, x86_gcc2h]
+speed_factor: 1.0               # emulation would be ~0.05
+needs: { kvm: true }
+
+# host-types/linux-tcg-arm64.yaml
+name: linux-tcg-arm64
+runs: qemu-system-aarch64 -accel tcg
+builds: [arm64]
+speed_factor: 0.06
+needs: { opt_in: long_jobs }</code></pre>
+  <p>When a client enrolls, it reports what it can run: KVM or not, its architecture, cores, memory and free disk. The orchestrator works out its host types from that. The client checks the guest image's sha256 before every build, so all copies of a job run in identical guests. That's what lets two builds match.</p>
+</section>
+
+<section id="scheduling">
+  <p class="label">5 · Scheduling</p>
+  <h2>Scheduling</h2>
+  <p>Scheduling happens when a client asks for work. The scheduler doesn't plan the whole queue ahead: it answers one request at a time, in a few milliseconds, from the jobs that request can take.</p>
+
+  <h3>Which jobs a client can take</h3>
+  <ul class="ticks">
+    <li><strong>Ready:</strong> every build dependency of the job is accepted.</li>
+    <li><strong>Buildable:</strong> one of the client's host types builds the job's platform.</li>
+    <li><strong>Fits:</strong> the job's estimated peak memory and disk fit the client's limits, and its estimated duration on that client fits the longest job the volunteer accepts.</li>
+    <li><strong>Not already its own:</strong> the client doesn't hold or hasn't returned the other copy, and doesn't share an owner with whoever does.</li>
+  </ul>
+
+  <h3>Which of those it gets</h3>
+  <p>The eligible jobs are ranked by these rules, in order:</p>
+  <ol class="flow">
+    <li><strong>Security fixes first:</strong> a recipe change marked as a security fix jumps the queue.</li>
+    <li><strong>Second copies before first copies:</strong> a job with one result waiting is closest to being accepted. Finishing it frees its dependents sooner, and the first result doesn't go stale.</li>
+    <li><strong>Most blocked work first:</strong> jobs are ranked by how much work waits on them, which is the sum of the estimated costs of everything that depends on them, directly or not. That's why gcc and glib2 go before mpv.</li>
+    <li><strong>Size to the machine:</strong> among jobs close in rank, a slow or limited client gets the shorter jobs and a big one the longer ones, so a laptop never holds up the toolchain.</li>
+    <li><strong>Oldest first</strong> breaks any remaining tie.</li>
+  </ol>
+
+  <h3>Estimates</h3>
+  <p>A job's cost comes from the last accepted build of that port on that platform: the median duration, in "reference seconds", plus peak memory and disk. A port with no history gets a conservative default for its platform. Each client has a speed: the ratio of its actual times to the estimates over its last 20 builds, starting from a two-minute calibration build at enrollment. A job's expected duration on a client is cost ÷ speed.</p>
+
+  <h3>Leases</h3>
+  <div class="scroll">
+  <table>
+    <thead><tr><th>Rule</th><th>Starting value</th></tr></thead>
+    <tbody>
+      <tr><td>Heartbeat interval</td><td>60 s, with the build step and progress</td></tr>
+      <tr><td>A lease is lost after</td><td>5 missed heartbeats, or its deadline</td></tr>
+      <tr><td>Deadline</td><td>2 × the expected duration + 1 h</td></tr>
+      <tr><td>A paused client</td><td>keeps its lease while it sends heartbeats, up to the deadline</td></tr>
+      <tr><td>A late result</td><td>is still used if the job needs it, otherwise counted for credit and dropped</td></tr>
+      <tr><td>Leases per client</td><td>one per slot. A client with many cores can ask for two slots.</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>Inputs and snapshots</h3>
+  <p>A lease names the snapshot of accepted packages to build against, by its sha256. Both copies of a job use the same snapshot, even if more packages are accepted in between. Otherwise the two builds would start from different inputs and couldn't be expected to match.</p>
+
+  <h3>What triggers rebuilds</h3>
+  <ul class="ticks">
+    <li>A recipe changes on <code>main</code>: that port, as now. As in HaikuPorts, dependents are rebuilt only when their own recipes change. This is the usual practice, and Awase doesn't change it.</li>
+    <li>A builder's key is revoked: every package that key helped accept goes back to one result, and the copy is scheduled again.</li>
+    <li>A platform file changes its guest image or HaikuPorter revision: nothing is rebuilt automatically. The change applies to new jobs, and a maintainer can queue a full rebuild.</li>
+  </ul>
+
+  <h3>Publishing</h3>
+  <p>The assembler makes a candidate repository when the queue for a platform drains, or every 24 hours if it doesn't. A key holder signs it, and the download server only switches to a correctly signed repository.</p>
+</section>
+
+<section id="failure">
+  <p class="label">6 · Failure</p>
+  <h2>When things go wrong</h2>
+  <div class="scroll">
+  <table>
+    <thead><tr><th>What fails</th><th>What happens</th></tr></thead>
+    <tbody>
+      <tr><td>The orchestrator is down</td><td>Clients finish their current builds, keep the results, and retry with backoff, up to an hour between tries. Users' installs aren't affected, because the download server is separate.</td></tr>
+      <tr><td>A client vanishes mid-build</td><td>Its lease expires and the copy goes to someone else.</td></tr>
+      <tr><td>Two builds disagree</td><td>The job goes back to ready, and the pair's logs and packages are kept for a maintainer. A port that mismatches three times is held until a maintainer looks.</td></tr>
+      <tr><td>A client keeps disagreeing with others</td><td>Its new leases stop after three mismatches in a week where the other side agreed with a third build, and a maintainer is told.</td></tr>
+      <tr><td>Storage is lost</td><td>Packages can be fetched again from the download server and mirrors. Logs are lost, but they aren't needed to trust anything.</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<section id="open">
+  <p class="label">7 · Open</p>
+  <h2>Open questions</h2>
+  <ul class="ticks">
+    <li>Whether HaikuPorter builds are bit-for-bit reproducible. Phase 0 measures it, and the answer decides how long the single-build lists start out.</li>
+    <li>Whether a Renku-native build (HaikuPorter's chroot) and a build in the Linux guest of the same image can match, or whether they need separate platforms.</li>
+    <li>Who runs the orchestrator and holds its server's keys, and who holds the release key (D2).</li>
+    <li>Building a small orchestrator of our own, or trying BOINC first, as the proposal asks.</li>
+  </ul>
+</section>
+
+</div>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap footer-inner">
+    <img src="assets/awase.svg" alt="" width="36" height="36">
+    <p>Awase is a proposal for <a href="https://renkuos.org/">Renku OS</a> and <a href="https://github.com/RenkuOS/RenkuOSPorts">RenkuOSPorts</a>. <a href="https://github.com/idumych/awase/blob/main/PROPOSAL.md">Read the proposal</a>.</p>
+  </div>
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<script>
+mermaid.initialize({
+  startOnLoad: true,
+  theme: "base",
+  themeVariables: {
+    background: "#12141c", primaryColor: "#191d2e", primaryTextColor: "#efe9dd",
+    primaryBorderColor: "#ff8a3d", lineColor: "#8d8a99", secondaryColor: "#232842",
+    tertiaryColor: "#12141c", fontFamily: "IBM Plex Sans, system-ui, sans-serif",
+    actorBkg: "#191d2e", actorBorder: "#ff8a3d", actorTextColor: "#efe9dd",
+    signalColor: "#c9c2b4", signalTextColor: "#efe9dd", noteBkgColor: "#232842",
+    noteTextColor: "#efe9dd", clusterBkg: "#0c0d12", clusterBorder: "#2a2f45",
+    labelBoxBkgColor: "#191d2e", labelTextColor: "#efe9dd"
+  }
+});
+</script>
+<script src="assets/pool.js"></script>
+</body>
+</html>
