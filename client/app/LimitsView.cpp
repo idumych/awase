@@ -200,6 +200,21 @@ LimitsView::Paint(BView* canvas, BRect bounds)
 	_PaintSlider(canvas, kTemperature, "PAUSE ABOVE", temperature,
 		(float)(limits.maxTemperature - kMinTemperature)
 			/ (kMaxTemperature - kMinTemperature));
+	// What the sensor says, so a machine without one doesn't look protected.
+	if (fModel.live) {
+		const awase::LiveSnapshot& live = fModel.snapshot;
+		char reading[48];
+		if (live.temperature >= 0)
+			snprintf(reading, sizeof(reading), "now %d\xc2\xb0%s",
+				live.temperature, live.tooHot ? " \xc2\xb7 paused" : "");
+		else
+			snprintf(reading, sizeof(reading), "no sensor");
+		BRect track = _Track(kTemperature);
+		BFont small = Mono(10);
+		canvas->SetFont(&small);
+		canvas->SetHighColor(live.tooHot ? kGold : kMuted);
+		canvas->DrawString(reading, BPoint(track.left, track.bottom + 17));
+	}
 
 	// When: two segments
 	BRect segments = _Segments();

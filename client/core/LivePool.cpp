@@ -6,6 +6,8 @@
 
 #include "LivePool.h"
 
+#include "Thermal.h"
+
 #include <dirent.h>
 #include <errno.h>
 #include <stdio.h>
@@ -25,6 +27,9 @@ static const size_t kMaxEvents = 50;
 static const size_t kHistoryBuckets = 24;
 static const double kBucketSeconds = 300;
 static const double kPackagesEvery = 60;
+// Builds resume once the CPU is this much below the limit again, so they
+// don't stop and start around it.
+static const int kCoolBy = 5;
 
 
 static bool
@@ -87,7 +92,10 @@ LivePool::LivePool()
 	fQuit(false),
 	fIdle(true),
 	fStart(0),
-	fBucketStart(0)
+	fBucketStart(0),
+	fTemperature(CpuTemperature),
+	fHeatEvery(5),
+	fNextHeatCheck(0)
 {
 	fLimits.cores = 1;
 	fLimits.maxCores = 1;
@@ -108,6 +116,8 @@ LivePool::LivePool()
 	fState.history.push_back(0);
 	fState.now = 0;
 	fState.nextPoll = 0;
+	fState.temperature = -1;
+	fState.tooHot = false;
 	fStart = _Now();
 }
 
@@ -166,6 +176,7 @@ LivePool::SetLimits(const Limits& limits)
 	{
 		std::lock_guard<std::mutex> lock(fLock);
 		fLimits = limits;
+		fNextHeatCheck = 0;		// judge the new limit at once
 	}
 	fWake.notify_all();
 }
@@ -176,6 +187,17 @@ LivePool::SetIdle(bool idle)
 {
 	std::lock_guard<std::mutex> lock(fLock);
 	fIdle = idle;
+}
+
+
+void
+LivePool::SetTemperatureSource(std::function<int()> source,
+	double everySeconds)
+{
+	std::lock_guard<std::mutex> lock(fLock);
+	fTemperature = source;
+	fHeatEvery = everySeconds;
+	fNextHeatCheck = 0;
 }
 
 
@@ -233,11 +255,70 @@ LivePool::_SetState(LiveState state, const std::string& message)
 }
 
 
-bool
-LivePool::_Allowed()
+void
+LivePool::_CheckHeat()
 {
+	std::function<int()> source;
+	{
+		std::lock_guard<std::mutex> lock(fLock);
+		if (_Now() < fNextHeatCheck)
+			return;
+		fNextHeatCheck = _Now() + fHeatEvery;
+		source = fTemperature;
+	}
+	// Outside the lock: a sensor can be slow to answer.
+	int celsius = source ? source() : -1;
+
+	bool started = false, ended = false;
+	int limit;
+	{
+		std::lock_guard<std::mutex> lock(fLock);
+		limit = fLimits.maxTemperature;
+		fState.temperature = celsius;
+		if (!fState.tooHot && celsius >= 0 && celsius > limit)
+			started = fState.tooHot = true;
+		else if (fState.tooHot && (celsius < 0 || celsius <= limit - kCoolBy)) {
+			fState.tooHot = false;
+			ended = true;
+		}
+	}
+	char text[96];
+	if (started) {
+		snprintf(text, sizeof(text), "The CPU is at %d \xc2\xb0""C, over the "
+			"%d \xc2\xb0""C limit: pausing", celsius, limit);
+		_Event(kLiveInfo, text);
+	} else if (ended) {
+		if (celsius < 0)
+			snprintf(text, sizeof(text), "The temperature sensor stopped "
+				"answering: carrying on");
+		else
+			snprintf(text, sizeof(text), "The CPU has cooled to %d \xc2\xb0""C: "
+				"carrying on", celsius);
+		_Event(kLiveInfo, text);
+	}
+}
+
+
+std::string
+LivePool::_Holdup(LiveState& state)
+{
+	_CheckHeat();
 	std::lock_guard<std::mutex> lock(fLock);
-	return !fLimits.paused && (!fLimits.idleOnly || fIdle);
+	state = kLivePaused;
+	if (fLimits.paused)
+		return "Paused";
+	if (fState.tooHot) {
+		char text[96];
+		snprintf(text, sizeof(text), "Too hot: the CPU is at %d \xc2\xb0""C, "
+			"over your %d \xc2\xb0""C limit", fState.temperature,
+			fLimits.maxTemperature);
+		return text;
+	}
+	if (fLimits.idleOnly && !fIdle) {
+		state = kLiveWaitingIdle;
+		return "Waiting for the computer to be idle";
+	}
+	return "";
 }
 
 
@@ -319,14 +400,10 @@ LivePool::_Run()
 			nextPackages = now + kPackagesEvery;
 		}
 
-		if (!_Allowed()) {
-			bool paused;
-			{
-				std::lock_guard<std::mutex> lock(fLock);
-				paused = fLimits.paused;
-			}
-			_SetState(paused ? kLivePaused : kLiveWaitingIdle,
-				paused ? "Paused" : "Waiting for the computer to be idle");
+		LiveState holdState;
+		std::string holdup = _Holdup(holdState);
+		if (!holdup.empty()) {
+			_SetState(holdState, holdup);
 			if (!_Wait(1))
 				return;
 			continue;
@@ -465,10 +542,15 @@ LivePool::_Build(const PortalJob& job)
 			return true;
 		}
 
-		bool allowed = _Allowed();
+		LiveState holdState;
+		std::string holdup = _Holdup(holdState);
+		bool allowed = holdup.empty();
 		if (!allowed && !builder.Paused()) {
 			builder.Pause();
-			_SetState(kLivePaused, "Build paused");
+			_SetState(holdState, holdup == "Paused" ? "Build paused" : holdup);
+		} else if (!allowed) {
+			// Already paused; the reason may have changed (or the reading).
+			_SetState(holdState, holdup == "Paused" ? "Build paused" : holdup);
 		} else if (allowed && builder.Paused()) {
 			builder.Resume();
 			_SetState(kLiveBuilding, "Building " + job.port + " "

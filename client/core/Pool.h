@@ -98,7 +98,7 @@ struct Limits {
 	int					cores;		// cores lent, 1..maxCores
 	int					maxCores;
 	bool				idleOnly;
-	int					maxTemperature;	// °C; reading sensors is to do
+	int					maxTemperature;	// °C: builds pause above it
 	bool				paused;
 };
 

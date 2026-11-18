@@ -19,6 +19,7 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <atomic>
 #include <string>
 
 using namespace awase;
@@ -139,7 +140,8 @@ Unlimited()
 	limits.cores = 2;
 	limits.maxCores = 4;
 	limits.idleOnly = false;
-	limits.maxTemperature = 85;
+	limits.maxTemperature = 200;	// this machine's own sensor never pauses
+
 	limits.paused = false;
 	return limits;
 }
@@ -293,6 +295,90 @@ TwoClientsVerify()
 }
 
 
+static std::atomic<int> sTemperature(50);
+
+
+static int
+FakeSensor()
+{
+	return sTemperature;
+}
+
+
+static void
+HeatPausesTheBuild()
+{
+	Json client = NewClient("x86");
+	setenv("SLOW_SECONDS", "4", 1);
+	QueueJob("slowheat", "x86");
+
+	LivePool pool;
+	pool.SetTemperatureSource(FakeSensor, 0.1);
+	Limits limits = Unlimited();
+	limits.maxTemperature = 85;
+	pool.SetLimits(limits);
+	pool.Start(Config(client));
+	CHECK(WaitFor("slowheat", "InProgress", 10));
+	usleep(500000);
+	CHECK(pool.Snapshot().temperature == 50);
+	CHECK(!pool.Snapshot().tooHot);
+
+	// Over the limit: the build pauses.
+	sTemperature = 95;
+	usleep(600000);
+	LiveSnapshot snapshot = pool.Snapshot();
+	CHECK(snapshot.tooHot);
+	CHECK(snapshot.state == kLivePaused);
+	CHECK(snapshot.message.find("Too hot") != std::string::npos);
+	double before = snapshot.elapsed;
+	sleep(2);
+	CHECK(pool.Snapshot().elapsed - before < 0.5);
+
+	// A little cooler, but not 5 degrees under the limit: still paused.
+	sTemperature = 82;
+	usleep(600000);
+	CHECK(pool.Snapshot().tooHot);
+
+	// Cool enough: it carries on and finishes.
+	sTemperature = 79;
+	usleep(600000);
+	snapshot = pool.Snapshot();
+	CHECK(!snapshot.tooHot);
+	CHECK(snapshot.state != kLivePaused);
+	bool completed = false;
+	for (int i = 0; i < 150 && !completed; i++) {
+		Json state = Stub("/stub/state");
+		completed = CompletedBuilds(state, FindJob(state, "slowheat")) > 0;
+		if (!completed)
+			usleep(100000);
+	}
+	CHECK(completed);
+
+	bool sawPause = false, sawCool = false;
+	snapshot = pool.Snapshot();
+	for (size_t i = 0; i < snapshot.events.size(); i++) {
+		const std::string& text = snapshot.events[i].text;
+		if (text.find("over the 85") != std::string::npos)
+			sawPause = true;
+		if (text.find("cooled to 79") != std::string::npos)
+			sawCool = true;
+	}
+	CHECK(sawPause);
+	CHECK(sawCool);
+
+	// Raising the limit takes effect at the next check (about a second
+	// while idle).
+	sTemperature = 95;
+	usleep(1500000);
+	CHECK(pool.Snapshot().tooHot);
+	limits.maxTemperature = 100;
+	pool.SetLimits(limits);
+	usleep(1500000);
+	CHECK(!pool.Snapshot().tooHot);
+	pool.Stop();
+}
+
+
 static void
 PauseStopsTheBuild()
 {
@@ -373,6 +459,7 @@ main(int argc, char** argv)
 	Credentials();
 	BuildsSucceedAndFail();
 	TwoClientsVerify();
+	HeatPausesTheBuild();
 	PauseStopsTheBuild();
 	StoppingReportsTheJob();
 

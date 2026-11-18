@@ -18,12 +18,15 @@
 //   --build-command PATH  run as <command> <port> <version> <outdir>
 //   --work-dir PATH       per-job folders (default ~/.cache/awase)
 //   --cores N             cores to lend (default: half of them)
+//   --max-temp C          pause builds while the CPU is above C °C
+//                         (default 85; without a sensor, never)
 //   --poll SECONDS        how often to ask for work when idle (default 60)
 //   --theme NAME          kiln (default), ember or tide
 //   --config PATH         another config file
 
 #include "DemoPool.h"
 #include "LivePool.h"
+#include "Thermal.h"
 
 #include <ctype.h>
 #include <locale.h>
@@ -53,6 +56,7 @@ struct Options {
 	LiveConfig	live;
 	std::string	theme;
 	int			cores;
+	int			maxTemperature;
 	bool		plain;
 	bool		demo;
 	std::string	error;
@@ -121,6 +125,8 @@ Apply(Options& options, const std::string& key, const std::string& value,
 		options.live.workDir = Expand(value);
 	else if (key == "cores")
 		options.cores = atoi(value.c_str());
+	else if (key == "max-temp" || key == "max_temp")
+		options.maxTemperature = atoi(value.c_str());
 	else if (key == "poll" || key == "poll_seconds")
 		options.live.pollSeconds = atoi(value.c_str());
 	else if (key == "theme")
@@ -135,6 +141,7 @@ ParseOptions(int argc, char** argv)
 {
 	Options options;
 	options.cores = 0;
+	options.maxTemperature = 85;
 	options.plain = false;
 	options.demo = false;
 	options.live.pollSeconds = 60;
@@ -385,7 +392,7 @@ FromDemo(const DemoPool& demo)
 }
 
 
-// #pragma mark - The machine: CPU and temperature from /proc and /sys
+// #pragma mark - The machine: CPU use from /proc (temperature: Thermal.h)
 
 
 struct CpuSample {
@@ -410,53 +417,6 @@ ReadCpu()
 		sample.total.push_back(total);
 	}
 	return sample;
-}
-
-
-// The CPU's temperature if the machine says which sensor that is (many
-// VPSs have none at all; then nothing is shown).
-static int
-ReadTemperature()
-{
-	int fallback = -1;
-	for (int i = 0; i < 32; i++) {
-		char path[96];
-		snprintf(path, sizeof(path), "/sys/class/thermal/thermal_zone%d/type", i);
-		std::ifstream typeFile(path);
-		std::string type;
-		if (!(typeFile >> type))
-			continue;
-		snprintf(path, sizeof(path), "/sys/class/thermal/thermal_zone%d/temp", i);
-		std::ifstream tempFile(path);
-		long milli;
-		if (!(tempFile >> milli))
-			continue;
-		std::string lower = type;
-		for (size_t c = 0; c < lower.size(); c++)
-			lower[c] = tolower((unsigned char)lower[c]);
-		if (lower == "x86_pkg_temp" || lower.find("cpu") != std::string::npos
-			|| lower.find("soc") != std::string::npos)
-			return (int)(milli / 1000);
-		if (fallback < 0)
-			fallback = (int)(milli / 1000);
-	}
-	// k10temp (AMD) reports through hwmon, not a thermal zone.
-	for (int i = 0; i < 16; i++) {
-		char path[96];
-		snprintf(path, sizeof(path), "/sys/class/hwmon/hwmon%d/name", i);
-		std::ifstream nameFile(path);
-		std::string name;
-		if (!(nameFile >> name))
-			continue;
-		if (name != "k10temp" && name != "coretemp" && name != "zenpower")
-			continue;
-		snprintf(path, sizeof(path), "/sys/class/hwmon/hwmon%d/temp1_input", i);
-		std::ifstream tempFile(path);
-		long milli;
-		if (tempFile >> milli)
-			return (int)(milli / 1000);
-	}
-	return fallback;
 }
 
 
@@ -960,7 +920,7 @@ Usage(FILE* out)
 		"--secret-file PATH\n"
 		"                 --build-command PATH] [--work-dir PATH] [--cores N] "
 		"[--poll S]\n"
-		"                 [--theme kiln|ember|tide]\n"
+		"                 [--max-temp C] [--theme kiln|ember|tide]\n"
 		"       awase-tui --demo\n"
 		"Settings can also go in ~/.config/awase/awase.conf as key = value.\n"
 		"The secret can come from $AWASE_SECRET instead of a file.\n");
@@ -1015,7 +975,7 @@ main(int argc, char** argv)
 	limits.cores = options.cores > 0 ? std::min(options.cores, limits.maxCores)
 		: std::max(1, limits.maxCores / 2);
 	limits.idleOnly = false;		// a server is never at its keyboard
-	limits.maxTemperature = 85;
+	limits.maxTemperature = options.maxTemperature;
 	limits.paused = false;
 
 	signal(SIGINT, OnSignal);
@@ -1054,7 +1014,7 @@ main(int argc, char** argv)
 	CpuSample previous = ReadCpu();
 	std::vector<double> usage(previous.busy.size(), 0);
 	double lastCpu = Seconds(), lastStep = Seconds(), start = Seconds();
-	int temperature = ReadTemperature();
+	int temperature = CpuTemperature();
 	bool confirmQuit = false;
 
 	while (!sQuit) {
@@ -1092,7 +1052,7 @@ main(int argc, char** argv)
 			}
 			previous = sample;
 			lastCpu = now;
-			temperature = ReadTemperature();
+			temperature = CpuTemperature();
 		}
 
 		Screen screen;

@@ -18,6 +18,10 @@ work-dir = ~/.cache/awase
 # Cores to lend (passed to the build command as AWASE_CORES); default half.
 cores = 4
 
+# Pause builds while the CPU is above this many °C (when the machine has a
+# temperature sensor), and carry on once it's 5 °C cooler; default 85.
+max-temp = 85
+
 # How often to ask for work when there's none, in seconds.
 poll = 60
 

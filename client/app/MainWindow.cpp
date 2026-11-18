@@ -222,6 +222,8 @@ MainWindow::_Tick()
 		fHeader->Invalidate();
 		fStatsView->Invalidate();
 		fActivityView->Invalidate();
+		if (fModel.live)
+			fLimitsView->Invalidate();	// the temperature reading
 	}
 }
 

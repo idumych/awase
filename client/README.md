@@ -32,7 +32,14 @@ what the portal's own client does, with the same build-command contract:
   failure with "infrastructure: <reason>" instead.
 
 Pause and "When idle" stop the build's whole process group and resume
-it. The window shows the build's step (from HaikuPorter's messages,
+it. So does the temperature limit ("Pause above"): while the CPU is over
+it, the build is stopped, and it carries on once the CPU is 5 °C under the
+limit again. The reading is taken every 5 seconds and shown under the
+slider, or "no sensor" when the machine has none Awase can read: on Renku
+that's the acpi_thermal, pch_thermal and amd_thermal drivers'
+`/dev/power` devices (the hottest counts); on Linux, a CPU thermal zone
+or the k10temp, coretemp or zenpower sensor. Without a sensor the limit
+does nothing. The window shows the build's step (from HaikuPorter's messages,
 roughly), its last log line, the time so far, and the coordinator's
 published packages for the platform, with the ports this machine built
 ringed.
@@ -67,6 +74,8 @@ live loop) in a tiled terminal layout, after the "Tiled" mockup.
   build with its steps and live log, the CPU use of every core, this
   machine's totals and build-time history, and the coordinator's events.
 - One column on narrow terminals (80×24 works).
+- Builds pause while the CPU is over `--max-temp` (85 °C by default) and
+  carry on once it's 5 °C cooler, as in the app.
 - Keys: `p` pause (the build's process group is stopped, not killed),
   `+`/`-` cores, `t` theme (kiln, ember, tide), `q` quit (asks first if a
   build is running, then gives its job back).
@@ -100,6 +109,7 @@ core/        portable C++, no Haiku headers:
              Pool, DemoPool    the pool's rules and the demo
              Portal            the coordinator's build-client API (libcurl)
              Builder           runs a build command, pauses it
+             Thermal           the CPU's temperature (Renku, Linux)
              LivePool          claim, build, upload, report or give back,
                                on a thread
              Json, Sha256
@@ -156,6 +166,11 @@ back).
   published, a dependency recorded as an extra, and a build stopped with
   the client going back to the queue. The Renku app was cross-built, not
   run again in QEMU.
+- The temperature limit: `make test` with a stand-in sensor (pausing over
+  the limit, staying paused until 5 °C under it, a raised limit taking
+  effect), and the Linux reading on a laptop (its `TCPU_PCI` zone). The
+  Renku reading was cross-built only: QEMU has no thermal sensor, and it
+  hasn't run on Renku hardware yet.
 - Not tested yet: the real portal server (it needs SQL Server and blob
   storage; the stand-in follows its code), a real HaikuPorter build, real
   hardware, the Linux build through Hokku.

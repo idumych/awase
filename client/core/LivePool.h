@@ -12,6 +12,7 @@
 // The window reads a copy of the state with Snapshot().
 
 #include <condition_variable>
+#include <functional>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -89,6 +90,8 @@ struct LiveSnapshot {
 	std::vector<std::string> built;		// ports this machine built
 	double				now;
 	double				nextPoll;		// seconds until the next poll
+	int					temperature;	// °C, or -1 without a sensor
+	bool				tooHot;			// builds paused for the heat
 };
 
 
@@ -107,6 +110,12 @@ public:
 			void				SetIdle(bool idle);
 			LiveSnapshot		Snapshot();
 
+			// Where the CPU temperature comes from (CpuTemperature() by
+			// default) and how often it's read. For tests.
+			void				SetTemperatureSource(
+									std::function<int()> source,
+									double everySeconds);
+
 			// Counters kept across runs by the app.
 			void				SetTotals(int builds, int succeeded, int failed,
 									double buildSeconds);
@@ -118,7 +127,10 @@ private:
 									const std::string& text);
 			void				_SetState(LiveState state,
 									const std::string& message);
-			bool				_Allowed();
+			// Why builds may not run now ("" when they may), and the
+			// state to show for it.
+			std::string			_Holdup(LiveState& state);
+			void				_CheckHeat();
 			// False when the job was given back without a build (a local
 			// problem), so the caller waits before claiming another.
 			bool				_Build(const PortalJob& job);
@@ -140,6 +152,9 @@ private:
 			LiveSnapshot		fState;
 			double				fStart;
 			double				fBucketStart;
+			std::function<int()> fTemperature;
+			double				fHeatEvery;
+			double				fNextHeatCheck;
 };
 
 

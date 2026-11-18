@@ -11,7 +11,7 @@
 
 NAME := Awase
 CORE := core/Pool.cpp core/DemoPool.cpp core/Json.cpp core/Sha256.cpp \
-	core/Portal.cpp core/Builder.cpp core/LivePool.cpp
+	core/Portal.cpp core/Builder.cpp core/LivePool.cpp core/Thermal.cpp
 APP := app/App.cpp app/ConnectWindow.cpp app/Ink.cpp app/LimitsView.cpp \
 	app/MainWindow.cpp \
 	app/Panels.cpp app/PoolView.cpp app/Settings.cpp
@@ -62,7 +62,7 @@ $(OBJ)/$(NAME).rsrc: $(NAME).rdef $(OBJ)/icon.rdef
 
 HOST_CORE := core/Pool.cpp core/DemoPool.cpp
 LIVE_CORE := $(HOST_CORE) core/Json.cpp core/Sha256.cpp core/Portal.cpp \
-	core/Builder.cpp core/LivePool.cpp
+	core/Builder.cpp core/LivePool.cpp core/Thermal.cpp
 
 test: objects/core_test objects/live_test
 	./objects/core_test

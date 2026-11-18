@@ -110,6 +110,7 @@
       <ul class="ticks">
         <li><strong>When:</strong> only when the computer is idle, or always. Pausing stops the build's whole process group, and resuming continues it, so no work is lost.</li>
         <li><strong>How much:</strong> the number of cores you lend, passed to the build.</li>
+        <li><strong>How hot:</strong> builds pause while the CPU is over the temperature you pick, and carry on once it has cooled 5 °C, where the machine has a sensor Awase can read.</li>
         <li><strong>What you see:</strong> the build's step and live log, the published packages with the ones you built marked, your totals and the portal's events.</li>
         <li><strong>When you quit:</strong> a running build is stopped and its job goes straight back to the queue for someone else.</li>
       </ul>
@@ -243,7 +244,7 @@
       </details>
       <details>
         <summary>Will it slow my computer down?</summary>
-        <p>Not while you're using it, if you choose "When idle". You can also choose how many cores to lend, and pause it at any time.</p>
+        <p>Not while you're using it, if you choose "When idle". You can also choose how many cores to lend and a temperature to pause above, and pause it at any time.</p>
       </details>
       <details>
         <summary>Can my machine break a package?</summary>
