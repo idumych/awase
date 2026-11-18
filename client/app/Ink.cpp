@@ -8,8 +8,11 @@
 
 #include <Bitmap.h>
 
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
+
+#include <algorithm>
 
 
 namespace ink {
@@ -213,6 +216,134 @@ DrawSeal(BView* view, BPoint center, float half, float pop)
 	view->DrawString(glyph, BPoint(center.x - width / 2,
 		center.y + (height.ascent - height.descent) / 2));
 	view->SetDrawingMode(mode);
+}
+
+
+float
+EaseOut(float t)
+{
+	t = t < 0 ? 0 : t > 1 ? 1 : t;
+	float u = 1 - t;
+	return 1 - u * u * u;
+}
+
+
+BPoint
+BezierPoint(const BPoint curve[4], float t)
+{
+	float u = 1 - t;
+	float a = u * u * u, b = 3 * u * u * t, c = 3 * u * t * t, d = t * t * t;
+	return BPoint(a * curve[0].x + b * curve[1].x + c * curve[2].x
+			+ d * curve[3].x,
+		a * curve[0].y + b * curve[1].y + c * curve[2].y + d * curve[3].y);
+}
+
+
+void
+DrawGlow(BView* view, BPoint center, float radius, rgb_color color,
+	float strength)
+{
+	if (strength <= 0 || radius <= 0)
+		return;
+	const int layers = 6;
+	uint8 alpha = (uint8)std::min(255.0f, 13 * strength);
+	view->SetHighColor(Alpha(color, alpha));
+	for (int i = 0; i < layers; i++) {
+		float r = radius * (1 - (float)i / layers);
+		view->FillEllipse(center, r, r);
+	}
+}
+
+
+void
+StrokeGradientBezier(BView* view, const BPoint curve[4], rgb_color from,
+	rgb_color to, float width, uint8 alpha, float t0, float t1)
+{
+	t0 = std::max(0.0f, t0);
+	t1 = std::min(1.0f, t1);
+	if (t1 <= t0)
+		return;
+	float pen = view->PenSize();
+	view->SetPenSize(width);
+	// Round ends join the segments smoothly, but where translucent ones
+	// overlap they'd show as beads.
+	view->SetLineMode(alpha == 255 ? B_ROUND_CAP : B_BUTT_CAP, B_ROUND_JOIN);
+	const int steps = 24;
+	for (int s = 0; s < steps; s++) {
+		float ta = t0 + (t1 - t0) * s / steps;
+		float tb = t0 + (t1 - t0) * (s + 1) / steps;
+		view->SetHighColor(Alpha(Mix(from, to, (ta + tb) / 2), alpha));
+		view->StrokeLine(BezierPoint(curve, ta), BezierPoint(curve, tb));
+	}
+	view->SetLineMode(B_BUTT_CAP, B_MITER_JOIN);
+	view->SetPenSize(pen);
+}
+
+
+void
+StrokeGradientArc(BView* view, BPoint center, float radius,
+	float startDegrees, float spanDegrees, rgb_color from, rgb_color to,
+	float width)
+{
+	int steps = std::max(1, (int)(fabsf(spanDegrees) / 4));
+	float pen = view->PenSize();
+	view->SetPenSize(width);
+	view->SetLineMode(B_ROUND_CAP, B_ROUND_JOIN);
+	BPoint last;
+	for (int s = 0; s <= steps; s++) {
+		float k = (float)s / steps;
+		float a = (startDegrees + spanDegrees * k) * (float)M_PI / 180;
+		BPoint p(center.x + radius * cosf(a), center.y - radius * sinf(a));
+		if (s > 0) {
+			view->SetHighColor(Mix(from, to, k));
+			view->StrokeLine(last, p);
+		}
+		last = p;
+	}
+	view->SetLineMode(B_BUTT_CAP, B_MITER_JOIN);
+	view->SetPenSize(pen);
+}
+
+
+void
+DrawRipples(BView* view, BPoint center, float age, float inner,
+	rgb_color color, float strength)
+{
+	const float life = 1.3f, spread = 30;
+	float pen = view->PenSize();
+	for (int k = 0; k < 3; k++) {
+		float p = (age - k * 0.16f) / life;
+		if (p <= 0 || p >= 1)
+			continue;
+		float r = inner + spread * EaseOut(p);
+		float fade = (1 - p) * (1 - p);
+		view->SetPenSize(1.8f - 0.4f * k);
+		view->SetHighColor(Alpha(color, (uint8)(210 * fade * strength)));
+		view->StrokeEllipse(center, r, r);
+	}
+	view->SetPenSize(pen);
+}
+
+
+void
+DrawSparks(BView* view, BPoint center, float age, float inner, uint32 seed,
+	rgb_color color)
+{
+	const float life = 0.8f;
+	float p = age / life;
+	if (p <= 0 || p >= 1)
+		return;
+	for (int i = 0; i < 9; i++) {
+		uint32 h = (seed + i * 2654435761u) ^ (seed >> 7);
+		h = (h ^ (h >> 13)) * 2246822519u;
+		float angle = (h & 0xffff) / 65535.0f * 2 * (float)M_PI;
+		float reach = 14 + ((h >> 16) & 0xff) / 255.0f * 16;
+		float d = inner + reach * EaseOut(p);
+		BPoint at(center.x + d * cosf(angle), center.y + d * sinf(angle));
+		float size = 0.6f + 1.4f * (1 - p);
+		view->SetHighColor(Alpha(color, (uint8)(230 * (1 - p))));
+		view->FillEllipse(at, size, size);
+	}
 }
 
 

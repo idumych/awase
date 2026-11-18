@@ -9,6 +9,8 @@
 
 #include <Point.h>
 
+#include <map>
+#include <string>
 #include <vector>
 
 #include "LivePool.h"
@@ -74,6 +76,7 @@ private:
 			void				_Layout(BRect bounds);
 			BPoint				_Anchor(int volunteer) const;
 			void				_DrawCard(BView* canvas, BRect bounds);
+			void				_DrawSky(BView* canvas, BRect bounds);
 			void				_PaintLive(BView* canvas, BRect bounds);
 
 			const Model&		fModel;
@@ -82,6 +85,8 @@ private:
 			std::vector<BPoint>	fAnchors;
 			BPoint				fMouse;
 			bool				fMouseInside;
+			float				fShownSealed;	// eases toward the count
+			std::map<std::string, bigtime_t> fFirstSeen;	// live packages
 };
 
 

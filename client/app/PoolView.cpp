@@ -8,6 +8,7 @@
 
 #include "DemoPool.h"
 
+#include <GradientLinear.h>
 #include <String.h>
 #include <Window.h>
 
@@ -53,7 +54,8 @@ PoolView::PoolView(const Model& model)
 	InkView("pool"),
 	fModel(model),
 	fPool(*model.demo),
-	fMouseInside(false)
+	fMouseInside(false),
+	fShownSealed(-1)
 {
 	SetExplicitMinSize(BSize(480, 380));
 }
@@ -130,6 +132,7 @@ PoolView::Paint(BView* canvas, BRect bounds)
 		return;
 	}
 	_Layout(bounds);
+	float clock = (float)(system_time() % 1000000000) / 1000000.0f;
 
 	canvas->SetDrawingMode(B_OP_ALPHA);
 
@@ -140,6 +143,7 @@ PoolView::Paint(BView* canvas, BRect bounds)
 		canvas->SetHighColor(Alpha(kIndigo2, 9));
 		canvas->FillEllipse(glow, r, r * 0.6f);
 	}
+	_DrawSky(canvas, bounds);
 
 	// Title
 	int sealed = 0;
@@ -164,6 +168,26 @@ PoolView::Paint(BView* canvas, BRect bounds)
 		(int)packages.size());
 	canvas->DrawString(count,
 		BPoint(bounds.left + kSide + titleWidth + 14, bounds.top + 57));
+
+	// How much of the round is sealed, the bar easing toward the count
+	if (fShownSealed < 0)
+		fShownSealed = sealed;
+	fShownSealed += (sealed - fShownSealed) * 0.12f;
+	if (fabsf(sealed - fShownSealed) < 0.01f)
+		fShownSealed = sealed;
+	BRect track(bounds.left + kSide, bounds.top + 67,
+		bounds.left + kSide + 180, bounds.top + 69);
+	canvas->SetHighColor(kIndigo2);
+	canvas->FillRoundRect(track, 1.5f, 1.5f);
+	if (!packages.empty() && fShownSealed > 0.01f) {
+		BRect fill = track;
+		fill.right = track.left + track.Width() * fShownSealed
+			/ packages.size();
+		BGradientLinear gradient(track.LeftTop(), track.RightTop());
+		gradient.AddColor(kSeal, 0);
+		gradient.AddColor(kGold, 255);
+		canvas->FillRoundRect(fill, 1.5f, 1.5f, gradient);
+	}
 
 	// Legend, top right
 	float lx = bounds.right - kSide - 300, ly = bounds.top + 52;
@@ -193,10 +217,19 @@ PoolView::Paint(BView* canvas, BRect bounds)
 			BPoint a = fNodes[dep], b = fNodes[i];
 			bool lit = packages[dep].state == kSealed
 				&& packages[i].state == kSealed;
-			canvas->SetHighColor(lit ? Alpha(kFire2, 70) : Alpha(kWashi, 22));
 			float mid = (a.x + b.x) / 2;
 			BPoint curve[4] = { a, BPoint(mid, a.y), BPoint(mid, b.y), b };
-			canvas->StrokeBezier(curve);
+			if (lit) {
+				// Both ends sealed: the thread glows, vermilion to gold
+				canvas->SetPenSize(5);
+				canvas->SetHighColor(Alpha(Mix(kSeal, kGold, 0.5f), 30));
+				canvas->StrokeBezier(curve);
+				canvas->SetPenSize(1);
+				StrokeGradientBezier(canvas, curve, kSeal, kGold, 1.4f, 200);
+			} else {
+				canvas->SetHighColor(Alpha(kWashi, 22));
+				canvas->StrokeBezier(curve);
+			}
 		}
 	}
 
@@ -218,6 +251,10 @@ PoolView::Paint(BView* canvas, BRect bounds)
 			BPoint curve[4] = { p0, p1, p2, p3 };
 			canvas->StrokeBezier(curve);
 
+			// A soft glow along the tail
+			StrokeGradientBezier(canvas, curve, you ? kSeal : kFire2,
+				you ? kFire : kGold, you ? 7 : 4, you ? 40 : 22, t - 0.22f, t);
+
 			// The bright part behind the head
 			const int steps = 14;
 			float tail = 0.18f;
@@ -236,16 +273,36 @@ PoolView::Paint(BView* canvas, BRect bounds)
 			}
 			BPoint head = Bezier(p0, p1, p2, p3, t);
 			float pulse = 0.5f + 0.5f * sinf((float)now * 6 + i);
-			if (you) {
-				canvas->SetHighColor(Alpha(kFire, (uint8)(50 + 50 * pulse)));
-				canvas->FillEllipse(head, 7, 7);
+			DrawGlow(canvas, head, you ? 15 : 8, kFire,
+				you ? 1.0f + 0.6f * pulse : 0.6f);
+
+			// Sparks shed behind the head, drifting off the thread
+			for (int k = 1; k <= 5; k++) {
+				float tk = t - 0.022f * k;
+				if (tk <= 0)
+					break;
+				BPoint spark = BezierPoint(curve, tk);
+				float drift = sinf(clock * 5 + k * 2.1f + i) * 2.2f * k / 5;
+				spark.x += drift;
+				spark.y -= drift * 0.6f;
+				canvas->SetHighColor(Alpha(Mix(kFire2, kWashi, 0.35f),
+					(uint8)((you ? 190 : 110) * (1 - k / 6.0f))));
+				float r = (you ? 1.6f : 1.1f) * (1 - k * 0.12f);
+				canvas->FillEllipse(spark, r, r);
 			}
-			canvas->SetHighColor(Alpha(you ? kFire : kFire2, 240));
-			canvas->FillEllipse(head, you ? 3.2f : 2.4f, you ? 3.2f : 2.4f);
+			canvas->SetHighColor(you ? Mix(kFire, kWashi, 0.75f)
+				: Alpha(kFire2, 240));
+			canvas->FillEllipse(head, you ? 3.4f : 2.4f, you ? 3.4f : 2.4f);
 		}
 	}
 
 	// Packages
+	int newest = -1;
+	for (size_t i = 0; i < packages.size(); i++) {
+		if (packages[i].state == kSealed && (newest < 0
+				|| packages[i].sealedAt > packages[newest].sealedAt))
+			newest = (int)i;
+	}
 	BFont small = Mono(10);
 	for (size_t i = 0; i < packages.size(); i++) {
 		const Package& package = packages[i];
@@ -259,6 +316,18 @@ PoolView::Paint(BView* canvas, BRect bounds)
 		if (package.state == kSealed) {
 			float age = (float)(now - package.sealedAt);
 			float pop = age < 0.35f ? 1.0f + 0.6f * (1 - age / 0.35f) : 1.0f;
+			DrawGlow(canvas, at, kSealHalf * 1.9f, kSeal, 0.7f);
+			if (age < 1.8f) {
+				// It just landed: rings spread and sparks fly
+				DrawRipples(canvas, at, age, kSealHalf + 2, kFire2);
+				DrawSparks(canvas, at, age, kSealHalf,
+					(uint32)i * 7919u + (uint32)(package.sealedAt * 10),
+					Mix(kFire2, kWashi, 0.4f));
+			} else if ((int)i == newest) {
+				// The newest seal keeps a gentle ripple
+				DrawRipples(canvas, at, fmodf(age - 1.8f, 3.0f),
+					kSealHalf + 2, kFire2, 0.35f);
+			}
 			DrawSeal(canvas, at, kSealHalf, pop);
 		} else {
 			uint8 a = package.state == kWaiting ? 60
@@ -270,6 +339,17 @@ PoolView::Paint(BView* canvas, BRect bounds)
 				canvas->SetHighColor(Alpha(kFire2, 220));
 				canvas->FillEllipse(at, 2.8f, 2.8f);
 			}
+		}
+
+		if (package.mismatches > 0 && package.state != kSealed) {
+			// Builds disagreed: gold rings breathe until a third settles it
+			float breathe = 0.6f + 0.4f * sinf(clock * 2.4f + i);
+			canvas->SetPenSize(1.6f);
+			canvas->SetHighColor(Alpha(kGold, (uint8)(150 * breathe)));
+			canvas->StrokeEllipse(at, kNode + 5, kNode + 5);
+			canvas->SetPenSize(1);
+			canvas->SetHighColor(Alpha(kGold, (uint8)(60 * breathe)));
+			canvas->StrokeEllipse(at, kNode + 11, kNode + 11);
 		}
 
 		float since = (float)(now - package.mismatchAt);
@@ -299,6 +379,8 @@ PoolView::Paint(BView* canvas, BRect bounds)
 		bool busy = volunteers[v].package >= 0;
 		if (volunteers[v].you) {
 			bool active = fPool.YouActive();
+			if (active)
+				DrawGlow(canvas, at, 24, kFire, 1.2f);
 			canvas->SetHighColor(Alpha(kFire, active ? 60 : 20));
 			canvas->FillEllipse(at, 11, 11);
 			canvas->SetHighColor(active ? kFire : kMuted);
@@ -314,6 +396,32 @@ PoolView::Paint(BView* canvas, BRect bounds)
 	}
 
 	_DrawCard(canvas, bounds);
+}
+
+
+// Stars that twinkle, and a faint 合 behind the graph.
+void
+PoolView::_DrawSky(BView* canvas, BRect bounds)
+{
+	float clock = (float)(system_time() % 1000000000) / 1000000.0f;
+	for (int i = 0; i < 28; i++) {
+		uint32 h = (uint32)(i + 1) * 2654435761u;
+		h = (h ^ (h >> 15)) * 2246822519u;
+		h ^= h >> 13;
+		float x = bounds.left + (h & 0xffff) / 65535.0f * bounds.Width();
+		float y = bounds.top + ((h >> 16) & 0xffff) / 65535.0f
+			* (bounds.Height() - 60);
+		float twinkle = 0.5f + 0.5f
+			* sinf(clock * (0.6f + (h & 7) * 0.15f) + i * 1.7f);
+		float r = 0.5f + ((h >> 8) & 3) * 0.2f;
+		canvas->SetHighColor(Alpha(kWashi, (uint8)(20 + 70 * twinkle)));
+		canvas->FillEllipse(BPoint(x, y), r, r);
+	}
+	BFont big = Cjk(std::min(300.0f, bounds.Height() * 0.6f));
+	canvas->SetFont(&big);
+	canvas->SetHighColor(Alpha(kWashi, 4));
+	canvas->DrawString("\xe5\x90\x88", BPoint(bounds.right
+		- big.StringWidth("\xe5\x90\x88") - 20, bounds.bottom - 70));
 }
 
 
@@ -494,6 +602,8 @@ PoolView::_PaintLive(BView* canvas, BRect bounds)
 	BPoint next = area.LeftTop() + BPoint(cellWidth / 2, cellHeight / 2 - 6);
 	int shown = std::min((int)live.recent.size(), capacity - (live.hasJob ? 1 : 0));
 	int first = live.hasJob ? 1 : 0;	// the build in progress takes the first cell
+	// Packages already there when the list first arrives don't land again.
+	bool initial = fFirstSeen.empty();
 	for (int i = 0; i < shown; i++) {
 		const PortalPackage& package = live.recent[i];
 		int cell = i + first;
@@ -508,9 +618,22 @@ PoolView::_PaintLive(BView* canvas, BRect bounds)
 				at.y + 15), 6, 6);
 			canvas->SetPenSize(1);
 		}
-		if (package.Matched())
-			DrawSeal(canvas, at, kSealHalf);
-		else {
+		bigtime_t& seen = fFirstSeen[package.fileName];
+		if (seen == 0 && !initial)
+			seen = clock;
+		else if (seen == 0)
+			seen = 1;
+		float age = seen > 1 ? (clock - seen) / 1000000.0f : 99;
+		if (package.Matched()) {
+			float pop = age < 0.35f ? 1.0f + 0.6f * (1 - age / 0.35f) : 1.0f;
+			DrawGlow(canvas, at, kSealHalf * 1.9f, kSeal, 0.7f);
+			if (age < 1.8f) {
+				DrawRipples(canvas, at, age, kSealHalf + 2, kFire2);
+				DrawSparks(canvas, at, age, kSealHalf, (uint32)seen,
+					Mix(kFire2, kWashi, 0.4f));
+			}
+			DrawSeal(canvas, at, kSealHalf, pop);
+		} else {
 			// Published without two matching builds (imported, older, or
 			// approved by an admin): an empty frame where the seal would be.
 			canvas->SetHighColor(Alpha(kWashi, 90));
@@ -566,6 +689,8 @@ PoolView::_PaintLive(BView* canvas, BRect bounds)
 			canvas->StrokeLine(Bezier(p0, p1, p2, p3, std::max(0.0f, ta)),
 				Bezier(p0, p1, p2, p3, tb));
 		}
+		if (active)
+			DrawGlow(canvas, Bezier(p0, p1, p2, p3, t), 12, kFire, 1.2f);
 		canvas->SetPenSize(1);
 		float pulse = 0.5f + 0.5f * sinf((float)clock / 250000.0f);
 		canvas->SetHighColor(Alpha(active ? kFire : kGold,

@@ -159,6 +159,11 @@ HeaderView::Paint(BView* canvas, BRect bounds)
 	canvas->SetHighColor(Alpha(kWashi, 24));
 	canvas->StrokeLine(bounds.LeftBottom(), bounds.RightBottom());
 
+	// An ember behind the seal, and the seal glowing
+	DrawGlow(canvas, BPoint(bounds.left + kPad + 30, bounds.top + 10), 120,
+		kSeal, 0.5f);
+	DrawGlow(canvas, BPoint(bounds.left + kPad + 18, bounds.top + 38), 34,
+		kFire, 1.1f);
 	DrawSeal(canvas, BPoint(bounds.left + kPad + 18, bounds.top + 38), 18);
 
 	BFont name = Display(28);
@@ -205,11 +210,21 @@ HeaderView::Paint(BView* canvas, BRect bounds)
 	canvas->FillRoundRect(pill, pill.Height() / 2, pill.Height() / 2);
 	canvas->SetHighColor(Alpha(dot, 110));
 	canvas->StrokeRoundRect(pill, pill.Height() / 2, pill.Height() / 2);
-	float pulse = dot == kFire
-		? 0.5f + 0.5f * sinf((float)system_time() / 300000.0f) : 1;
+	BPoint dotAt(pill.left + 18, pill.top + pill.Height() / 2);
+	float pulse = 1;
+	if (dot == kFire) {
+		// While it builds, rings ripple out from the dot
+		float clock = (float)(system_time() % 1000000000) / 1000000.0f;
+		pulse = 0.5f + 0.5f * sinf(clock * 3.3f);
+		for (int k = 0; k < 2; k++) {
+			float p = fmodf(clock / 1.6f + k * 0.5f, 1.0f);
+			canvas->SetHighColor(Alpha(dot, (uint8)(170 * (1 - p))));
+			canvas->StrokeEllipse(dotAt, 4.5f + 7 * p, 4.5f + 7 * p);
+		}
+		DrawGlow(canvas, dotAt, 10, dot, 1.2f);
+	}
 	canvas->SetHighColor(Alpha(dot, (uint8)(140 + 115 * pulse)));
-	canvas->FillEllipse(BPoint(pill.left + 18, pill.top + pill.Height() / 2),
-		4.5f, 4.5f);
+	canvas->FillEllipse(dotAt, 4.5f, 4.5f);
 	canvas->SetFont(&body);
 	canvas->SetHighColor(kWashi);
 	canvas->DrawString(status, BPoint(pill.left + 32, pill.top + 20));
@@ -352,7 +367,10 @@ NowView::_PaintBuilding(BView* canvas, BRect bounds)
 		}
 		canvas->SetFont(&stepFont);
 		canvas->SetHighColor(i <= (int)phase ? kWashi2 : kMuted);
-		canvas->DrawString(kSteps[i], BPoint(bar.left, stepsTop + 22));
+		const char* step = kSteps[i];
+		if (stepFont.StringWidth(step) > stepWidth - 6 && i == 1)
+			step = "Config";
+		canvas->DrawString(step, BPoint(bar.left, stepsTop + 22));
 	}
 
 	char left_[64];
@@ -369,31 +387,59 @@ NowView::_PaintBuilding(BView* canvas, BRect bounds)
 	canvas->DrawString(cores, BPoint(left + body.StringWidth(left_) + 10,
 		bounds.top + 182));
 
-	// The ring
+	// The ring: vermilion to gold, with a glowing tip
 	BPoint center(bounds.right - kPad - 56, bounds.top + 104);
-	float radius = 50;
-	canvas->SetPenSize(7);
-	canvas->SetLineMode(B_ROUND_CAP, B_ROUND_JOIN);
-	canvas->SetHighColor(Alpha(kWashi, 24));
+	float radius = 48;
+	DrawGlow(canvas, center, 110, kFire, 0.35f);
+	canvas->SetPenSize(1);
+	canvas->SetHighColor(Alpha(kWashi, 45));
+	for (int i = 0; i < 8; i++) {
+		float a = i * (float)M_PI / 4;
+		float r0 = radius + 9, r1 = radius + (i % 2 == 0 ? 14 : 12);
+		canvas->StrokeLine(
+			BPoint(center.x + r0 * cosf(a), center.y - r0 * sinf(a)),
+			BPoint(center.x + r1 * cosf(a), center.y - r1 * sinf(a)));
+	}
+	canvas->SetPenSize(8);
+	canvas->SetHighColor(kIndigo);
 	canvas->StrokeEllipse(center, radius, radius);
-	canvas->SetHighColor(kFire);
-	canvas->StrokeArc(center, radius, radius, 90, -360 * (float)progress);
-	canvas->SetLineMode(B_BUTT_CAP, B_MITER_JOIN);
+	canvas->SetPenSize(1);
+	canvas->SetHighColor(Alpha(kWashi, 15));
+	canvas->StrokeEllipse(center, radius - 10, radius - 10);
+	if (progress > 0.002) {
+		StrokeGradientArc(canvas, center, radius, 90, -360 * (float)progress,
+			kSeal, kGold, 8);
+	}
 	float angle = (90 - 360 * (float)progress) * (float)M_PI / 180;
 	BPoint tip(center.x + radius * cosf(angle), center.y - radius * sinf(angle));
-	canvas->SetHighColor(Alpha(kFire2, 90));
-	canvas->FillEllipse(tip, 8, 8);
+	float flicker = 0.85f + 0.15f * sinf((float)system_time() / 90000.0f);
+	DrawGlow(canvas, tip, 13, kGold, 1.6f * flicker);
+	canvas->SetHighColor(255, 246, 220);
+	canvas->FillEllipse(tip, 3, 3);
 
-	char percent[16];
-	snprintf(percent, sizeof(percent), "%d", (int)(progress * 100));
-	BFont figure = Display(30);
-	canvas->SetFont(&figure);
-	canvas->SetHighColor(kWashi);
-	float w = figure.StringWidth(percent);
-	canvas->DrawString(percent, BPoint(center.x - w / 2 - 5, center.y + 10));
-	canvas->SetFont(&mono);
-	canvas->SetHighColor(kMuted);
-	canvas->DrawString("%", BPoint(center.x + w / 2 - 3, center.y + 10));
+	if (progress >= 0.995) {
+		// Built: a tick in place of the number
+		canvas->SetPenSize(3.5f);
+		canvas->SetLineMode(B_ROUND_CAP, B_ROUND_JOIN);
+		canvas->SetHighColor(kWashi);
+		canvas->StrokeLine(BPoint(center.x - 13, center.y + 1),
+			BPoint(center.x - 4, center.y + 10));
+		canvas->StrokeLine(BPoint(center.x - 4, center.y + 10),
+			BPoint(center.x + 14, center.y - 10));
+		canvas->SetLineMode(B_BUTT_CAP, B_MITER_JOIN);
+	} else {
+		char percent[16];
+		snprintf(percent, sizeof(percent), "%d", (int)(progress * 100));
+		BFont figure = Display(30);
+		canvas->SetFont(&figure);
+		canvas->SetHighColor(kWashi);
+		float w = figure.StringWidth(percent);
+		canvas->DrawString(percent, BPoint(center.x - w / 2 - 5,
+			center.y + 10));
+		canvas->SetFont(&mono);
+		canvas->SetHighColor(kMuted);
+		canvas->DrawString("%", BPoint(center.x + w / 2 - 3, center.y + 10));
+	}
 	canvas->SetPenSize(1);
 }
 
@@ -663,6 +709,16 @@ ActivityView::Paint(BView* canvas, BRect bounds)
 		if (event.kind == kEventRound)
 			continue;
 		BPoint mark(left + 8, y - 4);
+		float fresh = 1 - (float)(pool.Now() - event.time) / 4.0f;
+		if (y == bounds.top + 62 && fresh > 0
+			&& (event.kind == kEventSealed || event.kind == kEventMismatch)) {
+			// The newest event lights up for a few seconds
+			rgb_color tint = event.kind == kEventSealed ? kSeal : kGold;
+			canvas->SetHighColor(Alpha(tint, (uint8)(36 * fresh)));
+			canvas->FillRoundRect(BRect(left - 10, y - 17, bounds.right
+				- kPad + 10, y + 8), 6, 6);
+			DrawGlow(canvas, mark, 16, tint, 1.4f * fresh);
+		}
 		switch (event.kind) {
 			case kEventSealed:
 				DrawSeal(canvas, mark, 7);

@@ -53,6 +53,27 @@ float			LabelWidth(BView* view, const char* text);
 void			DrawSeal(BView* view, BPoint center, float half,
 					float pop = 1.0f);
 
+// Light and motion, as in the eye-candy mockup. There's no blur, so a glow
+// is stacked translucent circles, and a gradient stroke is short segments.
+float			EaseOut(float t);	// 0..1, fast then slow
+BPoint			BezierPoint(const BPoint curve[4], float t);
+void			DrawGlow(BView* view, BPoint center, float radius,
+					rgb_color color, float strength = 1.0f);
+void			StrokeGradientBezier(BView* view, const BPoint curve[4],
+					rgb_color from, rgb_color to, float width, uint8 alpha,
+					float t0 = 0, float t1 = 1);
+// An arc from startDegrees (0 is east, counterclockwise) through
+// spanDegrees (negative is clockwise), shading from one colour to the other.
+void			StrokeGradientArc(BView* view, BPoint center, float radius,
+					float startDegrees, float spanDegrees, rgb_color from,
+					rgb_color to, float width);
+// Three rings spreading from a point, age seconds after something landed.
+void			DrawRipples(BView* view, BPoint center, float age,
+					float inner, rgb_color color, float strength = 1.0f);
+// Sparks thrown out from a point, age seconds after something landed.
+void			DrawSparks(BView* view, BPoint center, float age, float inner,
+					uint32 seed, rgb_color color);
+
 std::string		FormatDuration(double seconds);
 std::string		FakeHash(const std::string& seed);	// "c01f 9a3e … 4e10"
 

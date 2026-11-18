@@ -218,10 +218,11 @@ MainWindow::_Tick()
 	// enough to redraw a few times a second.
 	fPoolView->Invalidate();
 	fNowView->Invalidate();
+	fHeader->Invalidate();		// the rings around the status dot
+	if (fFrame % 2 == 0)
+		fActivityView->Invalidate();	// the newest event fading
 	if (fFrame++ % 6 == 0) {
-		fHeader->Invalidate();
 		fStatsView->Invalidate();
-		fActivityView->Invalidate();
 		if (fModel.live)
 			fLimitsView->Invalidate();	// the temperature reading
 	}
