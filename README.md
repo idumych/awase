@@ -10,7 +10,7 @@ It began as a proposal. Dru was building the [RenkuOSPorts portal](https://githu
 - **Awase:** the two-build design, and two clients for the portal: a native app for Renku OS and `awase-tui` for Linux servers. They're in [client/](client/).
 - **Still open:** signing. The proposal has clients sign their builds and a person sign the repository offline; the portal checks SHA-256s but signs nothing yet. Suggested in [portal issue #2](https://github.com/Druware/RenkuOSPorts-Portal/issues/2).
 
-Both are being tested. The portal runs in Docker Compose, with a plan for Azure; Awase is tested against a stand-in that follows the portal's code (as of commit `56dde86`), not yet against the real server or with real HaikuPorter builds.
+Both are being tested. The portal runs in Docker Compose, with a plan for Azure; Awase is tested against a stand-in that follows the portal's code (as of commit `4d4d2be`), not yet against the real server or with real HaikuPorter builds.
 
 - **Website:** https://idumych.github.io/awase/
 - **How it runs** (the pieces, a job's life, the two-build check, scheduling, the clients, deployment, and what changed from the proposal): https://idumych.github.io/awase/orchestration.html

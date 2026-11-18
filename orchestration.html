@@ -38,7 +38,7 @@
 <div class="doc-intro">
   <p class="status"><span class="dot"></span>Built · in testing</p>
   <h1>How Awase runs</h1>
-  <p class="lead">The pool runs on Dru's <a href="https://github.com/Druware/RenkuOSPorts-Portal">RenkuOSPorts portal</a>: a public package repository and build coordinator for Renku OS, which now does the two-build check Awase proposed. This page follows the portal's code as of commit <code>56dde86</code>. Awase is one of its build clients. Where a number appears, it's the portal's default setting.</p>
+  <p class="lead">The pool runs on Dru's <a href="https://github.com/Druware/RenkuOSPorts-Portal">RenkuOSPorts portal</a>: a public package repository and build coordinator for Renku OS, which now does the two-build check Awase proposed. This page follows the portal's code as of commit <code>4d4d2be</code>. Awase is one of its build clients. Where a number appears, it's the portal's default setting.</p>
 </div>
 
 <aside class="doc-toc" aria-label="On this page">
@@ -138,7 +138,7 @@ sequenceDiagram
   <p>Every job is built twice and published only when both builds have the same contents. Uploads are staged for their build; they become public packages only when the job is approved. Packages imported by an admin, and those published before verification existed, are trusted as they are.</p>
 
   <h3>What "the same" means</h3>
-  <p>HaikuPorter builds aren't reproducible byte for byte: every hpkg records file times. So the portal compares contents. For each of the port's packages it takes the metadata (<code>package list -i</code>, without any field about dates or times), every entry's path, type, permissions, size, symlink target and attribute names (<code>package list -a</code>, without the time column), and the SHA-256 of every extracted file, and hashes them into a content digest. Two builds match when their digests are equal. A file the package tool can't read is compared byte for byte.</p>
+  <p>HaikuPorter builds aren't reproducible byte for byte: every hpkg records file times. So the portal compares contents. For each of the port's packages it takes the metadata (<code>package list -i</code>, without any field about dates or times), every entry's path, type, permissions, size, symlink target and attribute names (<code>package list -a</code>, without the time column), and the SHA-256 of every extracted file, and hashes them into a content digest. Two builds match when their digests are equal. A file the package tool can't read is compared byte for byte, and the report of differences says why.</p>
 
   <h3>Independence</h3>
   <p>When a client completes a build, only other clients may claim the job's next build, for as long as that build took. After that, any client may, the first one included. A job whose matching builds came from one client is published as <em>self-verified</em>; one whose builds came from two clients shows "verified: 2 clients".</p>
@@ -233,7 +233,7 @@ sequenceDiagram
   </table>
   </div>
   <div class="two">
-    <div class="box"><p class="box-h">On the server</p><ul class="ticks"><li>Accounts, with optional GitHub sign-in</li><li>Build clients' secrets, stored only as hashes</li><li>The job queue, builds and their differences</li><li>Staged and published packages and logs</li></ul></div>
+    <div class="box"><p class="box-h">On the server</p><ul class="ticks"><li>Accounts, with optional GitHub sign-in</li><li>Build clients' secrets, stored only as hashes</li><li>The job queue, builds and their differences</li><li>Staged and published packages and logs</li><li>Clean-up by an admin, previewed before anything is deleted: old build logs, all but the newest few versions of each port, staged files no job still needs, and orphaned files</li></ul></div>
     <div class="box box-no"><p class="box-h">Not yet</p><ul class="ticks"><li>Clients' signing keys and signed builds</li><li>A repository signed offline by a person</li><li>Matching builds required from two different people</li></ul></div>
   </div>
 </section>

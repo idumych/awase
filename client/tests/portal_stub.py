@@ -4,7 +4,7 @@
 # A stand-in for the RenkuOSPorts portal's build-client API, for testing
 # Awase without SQL Server and blob storage. It follows
 # src/RenkuPorts.Server/Endpoints/BuildClientApi.cs in
-# github.com/Druware/RenkuOSPorts-Portal (commit 56dde86): the same routes,
+# github.com/Druware/RenkuOSPorts-Portal (commit 4d4d2be): the same routes,
 # JSON names, status codes and rules. Each claim of a job is a build; uploads
 # are staged for the build (sha256 field before the file, 409 on a different
 # package of the same name, packages of other ports recorded as extras);

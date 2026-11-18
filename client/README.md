@@ -140,7 +140,7 @@ make HAIKU_CROSS=1
 `make test` builds and runs the tests with the host compiler (it needs
 libcurl and python3): the pool's rules, then the coordinator client
 against `tests/portal_stub.py`, which follows the portal's
-`BuildClientApi.cs` as of commit 56dde86: claiming builds, uploads staged
+`BuildClientApi.cs` as of commit 4d4d2be: claiming builds, uploads staged
 with their SHA-256 checked (a 409 for a different package of the same
 name, other ports' packages as extras), the two-build check (one client
 after its window, or two clients), failing, `/api/client/me`, the paged

@@ -7,7 +7,7 @@
 
 // The build-client API of the RenkuOSPorts portal
 // (github.com/Druware/RenkuOSPorts-Portal, src/RenkuPorts.Server/Endpoints/
-// BuildClientApi.cs, as of commit 56dde86):
+// BuildClientApi.cs, as of commit 4d4d2be):
 //
 //   POST /api/client/token              { clientId, secret } -> { accessToken }
 //   GET  /api/client/me                 this client, and the ports repository
