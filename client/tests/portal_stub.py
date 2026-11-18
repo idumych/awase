@@ -4,18 +4,26 @@
 # A stand-in for the RenkuOSPorts portal's build-client API, for testing
 # Awase without SQL Server and blob storage. It follows
 # src/RenkuPorts.Server/Endpoints/BuildClientApi.cs in
-# github.com/Druware/RenkuOSPorts-Portal (commit 10e0012): the same routes,
-# JSON names, status codes and rules (atomic claim of the oldest queued job
-# for the client's platform, lease expiry, sha256 field before the file,
-# content-addressed uploads, 409 on a different package of the same name,
-# complete needs a package, fail discards the uploads). Tokens are opaque
-# here, not signed JWTs, but carry the same claims.
+# github.com/Druware/RenkuOSPorts-Portal (commit 56dde86): the same routes,
+# JSON names, status codes and rules. Each claim of a job is a build; uploads
+# are staged for the build (sha256 field before the file, 409 on a different
+# package of the same name, packages of other ports recorded as extras);
+# complete needs one of the port's packages and sends the job to
+# verification, which publishes once REQUIRED_MATCHES builds have the same
+# packages (here: the same sha256s; the portal compares contents), fails it
+# when three builds all differ, and otherwise queues the next build. A client
+# that completed a build may not claim the job again until its window
+# (completion + the build's duration) has passed. fail fails the job and
+# drops every build's uploads; release gives the job back. Lease expiry,
+# GET /api/client/me and the paged package list are there too. Tokens are
+# opaque here, not signed JWTs, but carry the same claims.
 #
 # Test-only routes, not in the portal:
 #   POST /stub/clients {platform}            -> {clientId, secret}
 #   POST /stub/jobs {port, version, platform} -> {jobId}
-#   GET  /stub/state                          -> jobs and packages
+#   GET  /stub/state                          -> jobs, builds and packages
 #   POST /stub/expire/<jobId>                 expire a job's lease now
+#   POST /stub/settings {requiredMatches, portsRepo}
 #
 # Copyright 2026, Ian Dumych.
 # SPDX-License-Identifier: MIT
@@ -35,9 +43,14 @@ LOCK = threading.Lock()
 CLIENTS = {}     # id -> {secretHash, platform, name, enabled}
 TOKENS = {}      # token -> client id
 JOBS = []        # dicts, see stub_job
-PACKAGES = []    # dicts: platform, fileName, sha256, size, jobId, buildDate
+BUILDS = []      # dicts: id, jobId, number, clientId, status, claimedAt,
+                 # completedAt, exclusiveUntil, staged [{fileName, sha256,
+                 # size, buildDate, extra}]
+PACKAGES = []    # published: platform, fileName, sha256, size, jobId, ...
 HPKG_NAME = re.compile(r'^[A-Za-z0-9_+~][A-Za-z0-9._+~-]*\.hpkg$')
 LEASE_HOURS = 72
+SETTINGS = {'requiredMatches': 2,
+            'portsRepo': {'url': 'https://example.invalid/RenkuOSPorts.git', 'branch': 'main'}}
 
 
 def now():
@@ -113,17 +126,30 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         with LOCK:
-            m = re.fullmatch(r'/api/repo/([^/]+)/packages', self.path.split('?')[0])
+            path, _, query = self.path.partition('?')
+            args = dict(a.partition('=')[::2] for a in query.split('&') if a)
+            m = re.fullmatch(r'/api/repo/([^/]+)/packages', path)
             if m:
-                published = [p for p in PACKAGES if p['platform'] == m.group(1)
-                             and job_status(p['jobId']) == 'Succeeded']
-                return self.send_json(200, [{
+                published = [p for p in reversed(PACKAGES) if p['platform'] == m.group(1)]
+                size = min(max(int(args.get('pageSize') or 50), 1), 200)
+                page = max(int(args.get('page') or 1), 1)
+                return self.send_json(200, {'items': [{
                     'fileName': p['fileName'], 'size': p['size'], 'sha256': p['sha256'],
                     'buildDate': p['buildDate'], 'uploadedAt': p['uploadedAt'],
                     'recipeUpdatedAt': p['uploadedAt'], 'portName': p['portName'],
-                    'builtBy': 'stub builder'} for p in published])
-            if self.path == '/stub/state':
-                return self.send_json(200, {'jobs': JOBS, 'packages': PACKAGES})
+                    'builtBy': 'stub builder', 'verification': p['verification'],
+                    'verifiedClients': p['verifiedClients']}
+                    for p in published[(page - 1) * size:page * size]],
+                    'total': len(published), 'page': page, 'pageSize': size})
+            if path == '/api/client/me':
+                cid, c = self.client()
+                if c is None:
+                    return self.problem(401, 'Unauthorized')
+                return self.send_json(200, {'id': cid, 'name': c['name'], 'platform': c['platform'],
+                                            'owner': 'stub owner', 'currentJob': None, 'ownerClients': [],
+                                            'portsRepo': SETTINGS['portsRepo']})
+            if path == '/stub/state':
+                return self.send_json(200, {'jobs': JOBS, 'builds': BUILDS, 'packages': PACKAGES})
         self.problem(404, 'Not Found')
 
     def do_POST(self):
@@ -141,6 +167,9 @@ class Handler(BaseHTTPRequestHandler):
                 job = stub_job(req['port'], req.get('version', '1.0'),
                                req.get('platform', 'x86_64'))
                 return self.send_json(200, {'jobId': job['id']})
+            if path == '/stub/settings':
+                SETTINGS.update(self.json_body() or {})
+                return self.no_content()
             m = re.fullmatch(r'/stub/expire/(\d+)', path)
             if m:
                 for j in JOBS:
@@ -172,20 +201,25 @@ class Handler(BaseHTTPRequestHandler):
                 t = now()
                 for j in JOBS:
                     if j['status'] == 'InProgress' and j['leaseExpiresAt'] < iso(t):
-                        j.update(status='Queued', claimedBy=None, claimedAt=None, leaseExpiresAt=None)
-                        discard(j['id'])
-                queued = [j for j in JOBS if j['status'] == 'Queued' and j['platform'] == c['platform']]
+                        release(j)
+                queued = [j for j in JOBS if j['status'] == 'Queued' and j['platform'] == c['platform']
+                          and not any(b['jobId'] == j['id'] and b['status'] == 'Completed'
+                                      and b['clientId'] == cid and b['exclusiveUntil'] > iso(t) for b in BUILDS)]
                 if not queued:
                     return self.no_content()
                 j = min(queued, key=lambda j: (j['queuedAt'], j['id']))
                 j.update(status='InProgress', claimedBy=cid, claimedAt=iso(t),
                          leaseExpiresAt=iso(t + datetime.timedelta(hours=LEASE_HOURS)),
                          attempts=j['attempts'] + 1)
+                number = sum(1 for b in BUILDS if b['jobId'] == j['id']) + 1
+                BUILDS.append({'id': len(BUILDS) + 1, 'jobId': j['id'], 'number': number, 'clientId': cid,
+                               'status': 'InProgress', 'claimedAt': iso(t), 'completedAt': None,
+                               'exclusiveUntil': None, 'staged': []})
                 return self.send_json(200, {'jobId': j['id'], 'portName': j['port'], 'version': j['version'],
                                             'category': 'dev-libs', 'recipePath': j['recipePath'],
-                                            'platform': j['platform']})
+                                            'platform': j['platform'], 'build': number})
 
-            m = re.fullmatch(r'/api/client/jobs/(\d+)/(packages|complete|fail)', path)
+            m = re.fullmatch(r'/api/client/jobs/(\d+)/(packages|complete|fail|release)', path)
             if not m:
                 self.body()
                 return self.problem(404, 'Not Found')
@@ -193,31 +227,50 @@ class Handler(BaseHTTPRequestHandler):
             job = self.claimed_job(int(m.group(1)), cid)
             if job is None:
                 return
+            build = next((b for b in BUILDS if b['jobId'] == job['id'] and b['status'] == 'InProgress'
+                          and b['clientId'] == cid), None)
+            if build is None:
+                return self.problem(409, 'The job has no open build of this client')
             action = m.group(2)
-
-            if action == 'packages':
-                return self.upload(job, cid, raw)
-            if action == 'complete':
-                if not any(p['jobId'] == job['id'] for p in PACKAGES):
-                    return self.problem(400, 'Bad request', 'Upload at least one package before completing the job.')
-                try:
-                    job['log'] = json.loads(raw or b'{}').get('log')
-                except ValueError:
-                    pass
-                job.update(status='Succeeded', completedAt=iso(now()), leaseExpiresAt=None)
-                return self.send_json(200, public_job(job))
-            # fail
             try:
-                req = json.loads(raw or b'{}')
+                req = json.loads(raw or b'{}') if action != 'packages' else {}
             except ValueError:
                 req = {}
+
+            if action == 'packages':
+                return self.upload(job, build, raw)
+            if action == 'complete':
+                if not any(not p['extra'] for p in build['staged']):
+                    return self.problem(400, 'Bad request',
+                                        f"Upload at least one package of {job['port']} before completing the job.")
+                if req.get('log') is not None:
+                    job['log'] = req['log']
+                t = now()
+                claimed = datetime.datetime.fromisoformat(build['claimedAt'].replace('Z', '+00:00'))
+                build.update(status='Completed', completedAt=iso(t), exclusiveUntil=iso(t + (t - claimed)))
+                if (job['failureSummary'] or '').startswith('Released: '):
+                    job['failureSummary'] = None
+                job.update(status='Verifying', claimedBy=None, claimedAt=None, leaseExpiresAt=None)
+                verify(job)
+                return self.send_json(200, public_job(job))
+            if action == 'release':
+                release(job)
+                reason = (req.get('reason') or '').strip() or 'no reason given'
+                job['failureSummary'] = ('Released: ' + reason)[:2000]
+                if req.get('log') is not None:
+                    job['log'] = req['log']
+                return self.no_content()
+            # fail
             summary = (req.get('summary') or '').strip() or 'build failed'
+            build.update(status='Failed', completedAt=iso(now()))
             job.update(status='Failed', failureSummary=summary[:2000], log=req.get('log'),
                        completedAt=iso(now()), claimedBy=None, claimedAt=None, leaseExpiresAt=None)
-            discard(job['id'])
+            for b in BUILDS:
+                if b['jobId'] == job['id']:
+                    b['staged'] = []
             return self.send_json(200, public_job(job))
 
-    def upload(self, job, cid, raw):
+    def upload(self, job, build, raw):
         ctype = self.headers.get('Content-Type', '')
         m = re.match(r'multipart/form-data;\s*boundary="?([^";]+)"?', ctype)
         if not m:
@@ -248,32 +301,70 @@ class Handler(BaseHTTPRequestHandler):
         actual = hashlib.sha256(data).hexdigest()
         if actual != sha:
             return self.problem(400, 'Bad request', f'sha256 {sha} does not match the uploaded bytes ({actual}).')
-        existing = next((p for p in PACKAGES if p['platform'] == job['platform'] and p['fileName'] == file_name), None)
-        if existing and existing['sha256'] != sha:
+        extra = not belongs_to_port(file_name, job['port'])
+        staged = next((p for p in build['staged'] if p['fileName'] == file_name), None)
+        if staged and staged['sha256'] != sha:
             return self.problem(409, 'Package already exists',
-                                f"{job['platform']}/{file_name} exists with different content (sha256 {existing['sha256']}).")
-        if not existing:
-            PACKAGES.append({'platform': job['platform'], 'fileName': file_name, 'sha256': sha,
-                             'size': len(data), 'jobId': job['id'], 'portName': job['port'],
-                             'buildDate': fields.get('buildDate') or iso(now()), 'uploadedAt': iso(now())})
-        return self.send_json(200, {'fileName': file_name, 'sha256': sha, 'size': len(data)})
+                                f"{file_name} was already uploaded for this build with sha256 {staged['sha256']}.")
+        published = next((p for p in PACKAGES if p['platform'] == job['platform'] and p['fileName'] == file_name
+                          and p['sha256'] != sha), None)
+        if not extra and published:
+            return self.problem(409, 'Package already exists',
+                                f"{job['platform']}/{file_name} exists with different content (sha256 {published['sha256']}).")
+        if not staged:
+            build['staged'].append({'fileName': file_name, 'sha256': sha, 'size': len(data), 'extra': extra,
+                                    'buildDate': fields.get('buildDate') or iso(now())})
+        return self.send_json(200, {'fileName': file_name, 'sha256': sha, 'size': len(data), 'extra': extra})
 
 
 def stub_job(port, version, platform):
     job = {'id': len(JOBS) + 1, 'port': port, 'version': version, 'platform': platform,
            'recipePath': f'dev-libs/{port}/{port}-{version}.recipe', 'status': 'Queued',
            'queuedAt': iso(now()), 'claimedBy': None, 'claimedAt': None, 'leaseExpiresAt': None,
-           'completedAt': None, 'attempts': 0, 'failureSummary': None, 'log': None}
+           'completedAt': None, 'attempts': 0, 'failureSummary': None, 'log': None,
+           'selfVerified': False}
     JOBS.append(job)
     return job
 
 
-def job_status(job_id):
-    return next((j['status'] for j in JOBS if j['id'] == job_id), None)
+def belongs_to_port(file_name, port):
+    # By name, as the portal does (without its check for longer port names).
+    name = file_name.split('-')[0]
+    return name == port or name.startswith(port + '_')
 
 
-def discard(job_id):
-    PACKAGES[:] = [p for p in PACKAGES if not (p['jobId'] == job_id and job_status(job_id) != 'Succeeded')]
+def digest(build):
+    return tuple(sorted((p['fileName'], p['sha256']) for p in build['staged'] if not p['extra']))
+
+
+def verify(job):
+    """What the portal's BuildVerifier does once a build completes."""
+    done = [b for b in BUILDS if b['jobId'] == job['id'] and b['status'] == 'Completed']
+    for b in done:
+        same = [o for o in done if digest(o) == digest(b)]
+        if len(same) >= SETTINGS['requiredMatches']:
+            clients = len({o['clientId'] for o in same})
+            for p in b['staged']:
+                if not p['extra']:
+                    PACKAGES.append(dict(p, platform=job['platform'], jobId=job['id'], portName=job['port'],
+                                         uploadedAt=iso(now()),
+                                         verification='verified' if clients > 1 else
+                                         'self-verified' if len(same) > 1 else None,
+                                         verifiedClients=clients if len(same) > 1 else 0))
+            job.update(status='Succeeded', completedAt=iso(now()), selfVerified=len(same) > 1 and clients == 1)
+            return
+    if len(done) >= 3:
+        job.update(status='Failed', failureSummary='three builds differ', completedAt=iso(now()))
+        return
+    job['status'] = 'Queued'
+
+
+def release(job):
+    """Requeues an InProgress job; its open build becomes Expired."""
+    job.update(status='Queued', claimedBy=None, claimedAt=None, leaseExpiresAt=None)
+    for b in BUILDS:
+        if b['jobId'] == job['id'] and b['status'] == 'InProgress':
+            b.update(status='Expired', completedAt=iso(now()), staged=[])
 
 
 def public_job(j):

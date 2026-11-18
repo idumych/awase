@@ -7,16 +7,23 @@
 
 // The build-client API of the RenkuOSPorts portal
 // (github.com/Druware/RenkuOSPorts-Portal, src/RenkuPorts.Server/Endpoints/
-// BuildClientApi.cs):
+// BuildClientApi.cs, as of commit 56dde86):
 //
 //   POST /api/client/token              { clientId, secret } -> { accessToken }
-//   POST /api/client/jobs/next          the oldest queued job for the
-//                                       client's platform, or 204
+//   GET  /api/client/me                 this client, and the ports repository
+//                                       to build from (portsRepo, or null)
+//   POST /api/client/jobs/next          the next queued job for the client's
+//                                       platform (a build of it), or 204
 //   POST /api/client/jobs/{id}/packages multipart: sha256 and buildDate
 //                                       fields, then the 'file' part
-//   POST /api/client/jobs/{id}/complete { log }
-//   POST /api/client/jobs/{id}/fail     { summary, log }
-//   GET  /api/repo/{platform}/packages  the published packages (public)
+//   POST /api/client/jobs/{id}/complete { log }: the build is done; the
+//                                       coordinator compares it with another
+//                                       build of the job before publishing
+//   POST /api/client/jobs/{id}/fail     { summary, log }: fails the job
+//   POST /api/client/jobs/{id}/release  { reason, log }: gives the job back
+//                                       without a result (client stopped)
+//   GET  /api/repo/{platform}/packages  the published packages (public,
+//                                       paged: { items, total, ... })
 
 #include <stdint.h>
 
@@ -46,6 +53,7 @@ struct PortalJob {
 	std::string			category;
 	std::string			recipePath;
 	std::string			platform;
+	int					build;			// which build of the job this is, from 1
 };
 
 
@@ -55,6 +63,14 @@ struct PortalPackage {
 	std::string			builtBy;
 	std::string			uploadedAt;		// ISO 8601
 	int64_t				size;
+	// "verified" (matching builds from different clients), "self-verified"
+	// (matching builds from one client), "override" (an admin approved
+	// builds that differ) or empty (imported, or older than verification).
+	std::string			verification;
+
+			bool			Matched() const
+								{ return verification == "verified"
+									|| verification == "self-verified"; }
 };
 
 
@@ -68,10 +84,22 @@ public:
 									const std::string& secret);
 
 			PortalStatus		Authenticate();
+			// The ports repository the coordinator builds from; both empty
+			// when it reads a local tree.
+			PortalStatus		PortsRepo(std::string& url,
+									std::string& branch);
 			PortalStatus		Next(PortalJob& job);
-			PortalStatus		Upload(int64_t job, const std::string& path);
+			// extra: the package isn't the job's port's (a dependency the
+			// build made), so the coordinator records it but won't publish it.
+			PortalStatus		Upload(int64_t job, const std::string& path,
+									bool* extra = NULL);
 			PortalStatus		Complete(int64_t job, const std::string& log);
 			PortalStatus		Fail(int64_t job, const std::string& summary,
+									const std::string& log);
+			// Gives the job back to the queue without failing it. A
+			// coordinator without the release route gets a fail with
+			// "infrastructure: <reason>" instead, as the portal's clients do.
+			PortalStatus		Release(int64_t job, const std::string& reason,
 									const std::string& log);
 			PortalStatus		RecentPackages(const std::string& platform,
 									std::vector<PortalPackage>& packages);
@@ -89,7 +117,8 @@ private:
 									const std::string& jsonBody,
 									bool authorized, std::string& reply,
 									long* httpCode = NULL);
-			PortalStatus		_Authorized(const std::string& path,
+			PortalStatus		_Authorized(const std::string& method,
+									const std::string& path,
 									const std::string& jsonBody,
 									std::string& reply, long* httpCode = NULL);
 			PortalStatus		_Status(long httpCode, const std::string& reply);

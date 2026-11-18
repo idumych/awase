@@ -3,8 +3,11 @@
 # A stand-in build command, for trying Awase against a coordinator without
 # building anything. It follows the RenkuOSPorts portal's build-command
 # contract and makes one small, fake <port>-<version>-1-<arch>.hpkg, the
-# same bytes every time. Ports named fail* fail; ports named slow* take
-# SLOW_SECONDS (default 20) and print HaikuPorter-like steps on the way.
+# same bytes every time, unless MOCK_VARIANT=<text> is set (it adds the
+# text: a build that won't match another). Ports named fail* fail; ports
+# named slow* take SLOW_SECONDS (default 20) and print HaikuPorter-like
+# steps on the way; ports named withdep* also leave a dependency's package
+# (depof_<port>), which the coordinator records but doesn't publish.
 #
 # Copyright 2026, Ian Dumych, idumych@gmail.com.
 # SPDX-License-Identifier: MIT
@@ -25,6 +28,13 @@ slow*)
 	echo "Running INSTALL()"; sleep "$step" ;;
 esac
 mkdir -p "$out"
-printf 'mock hpkg\nport=%s\nversion=%s\narch=%s\n' "$port" "$version" "$arch" \
-	> "$out/$port-$version-1-$arch.hpkg"
+{
+	printf 'mock hpkg\nport=%s\nversion=%s\narch=%s\n' "$port" "$version" "$arch"
+	[ -z "${MOCK_VARIANT:-}" ] || printf 'variant=%s\n' "$MOCK_VARIANT"
+} > "$out/$port-$version-1-$arch.hpkg"
 echo "wrote $out/$port-$version-1-$arch.hpkg"
+case $port in
+withdep*)
+	printf 'mock dependency of %s\n' "$port" > "$out/depof_$port-1.0-1-$arch.hpkg"
+	echo "wrote $out/depof_$port-1.0-1-$arch.hpkg" ;;
+esac

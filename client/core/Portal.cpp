@@ -22,6 +22,7 @@ namespace awase {
 // The server keeps the last 5 MB of a log; send no more than that.
 static const size_t kMaxLog = 5 * 1024 * 1024;
 static const long kTimeoutSeconds = 120;
+static const char* kUserAgent = "Awase/0.2";
 
 
 static size_t
@@ -174,7 +175,7 @@ PortalClient::_Request(const std::string& method, const std::string& path,
 	curl_easy_setopt(curl, CURLOPT_WRITEDATA, &reply);
 	curl_easy_setopt(curl, CURLOPT_TIMEOUT, kTimeoutSeconds);
 	curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
-	curl_easy_setopt(curl, CURLOPT_USERAGENT, "Awase/0.1");
+	curl_easy_setopt(curl, CURLOPT_USERAGENT, kUserAgent);
 	if (method == "POST") {
 		curl_easy_setopt(curl, CURLOPT_POST, 1L);
 		curl_easy_setopt(curl, CURLOPT_POSTFIELDS, jsonBody.c_str());
@@ -198,22 +199,22 @@ PortalClient::_Request(const std::string& method, const std::string& path,
 
 
 PortalStatus
-PortalClient::_Authorized(const std::string& path, const std::string& jsonBody,
-	std::string& reply, long* httpCode)
+PortalClient::_Authorized(const std::string& method, const std::string& path,
+	const std::string& jsonBody, std::string& reply, long* httpCode)
 {
 	if (fToken.empty()) {
 		PortalStatus status = Authenticate();
 		if (status != kPortalOk)
 			return status;
 	}
-	PortalStatus status = _Request("POST", path, jsonBody, true, reply,
+	PortalStatus status = _Request(method, path, jsonBody, true, reply,
 		httpCode);
 	if (status == kPortalUnauthorized) {
 		// The token may have expired: get a new one and try once more.
 		fToken.clear();
 		status = Authenticate();
 		if (status == kPortalOk)
-			status = _Request("POST", path, jsonBody, true, reply, httpCode);
+			status = _Request(method, path, jsonBody, true, reply, httpCode);
 	}
 	return status;
 }
@@ -241,10 +242,31 @@ PortalClient::Authenticate()
 
 
 PortalStatus
+PortalClient::PortsRepo(std::string& url, std::string& branch)
+{
+	url.clear();
+	branch.clear();
+	std::string reply;
+	PortalStatus status = _Authorized("GET", "/api/client/me", "", reply);
+	if (status != kPortalOk)
+		return status;
+	Json json;
+	if (!Json::Parse(reply, json)) {
+		fLastError = "the coordinator's client details weren't understood";
+		return kPortalServerError;
+	}
+	url = json["portsRepo"]["url"].String();
+	branch = json["portsRepo"]["branch"].String();
+	return kPortalOk;
+}
+
+
+PortalStatus
 PortalClient::Next(PortalJob& job)
 {
 	std::string reply;
-	PortalStatus status = _Authorized("/api/client/jobs/next", "", reply);
+	PortalStatus status = _Authorized("POST", "/api/client/jobs/next", "",
+		reply);
 	if (status != kPortalOk)
 		return status;
 	Json json;
@@ -258,13 +280,16 @@ PortalClient::Next(PortalJob& job)
 	job.category = json["category"].String();
 	job.recipePath = json["recipePath"].String();
 	job.platform = json["platform"].String();
+	job.build = (int)json["build"].Number(1);
 	return kPortalOk;
 }
 
 
 PortalStatus
-PortalClient::Upload(int64_t job, const std::string& path)
+PortalClient::Upload(int64_t job, const std::string& path, bool* extra)
 {
+	if (extra != NULL)
+		*extra = false;
 	std::string sha;
 	if (!Sha256::HashFile(path, sha)) {
 		fLastError = "can't read " + path;
@@ -320,7 +345,7 @@ PortalClient::Upload(int64_t job, const std::string& path)
 		curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, Collect);
 		curl_easy_setopt(curl, CURLOPT_WRITEDATA, &reply);
 		curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
-		curl_easy_setopt(curl, CURLOPT_USERAGENT, "Awase/0.1");
+		curl_easy_setopt(curl, CURLOPT_USERAGENT, kUserAgent);
 		// Large packages: no overall timeout, but give up on a stalled link.
 		curl_easy_setopt(curl, CURLOPT_LOW_SPEED_LIMIT, 1L);
 		curl_easy_setopt(curl, CURLOPT_LOW_SPEED_TIME, 300L);
@@ -337,6 +362,11 @@ PortalClient::Upload(int64_t job, const std::string& path)
 			return kPortalNetworkError;
 		}
 		status = _Status(code, reply);
+		if (status == kPortalOk && extra != NULL) {
+			Json json;
+			if (Json::Parse(reply, json))
+				*extra = json["extra"].Bool();
+		}
 		if (status != kPortalUnauthorized || attempt > 0)
 			break;
 		fToken.clear();
@@ -354,7 +384,7 @@ PortalClient::Complete(int64_t job, const std::string& log)
 	snprintf(route, sizeof(route), "/api/client/jobs/%lld/complete",
 		(long long)job);
 	std::string reply;
-	return _Authorized(route, "{\"log\":" + Json::Quote(TailOf(log)) + "}",
+	return _Authorized("POST", route, "{\"log\":" + Json::Quote(TailOf(log)) + "}",
 		reply);
 }
 
@@ -367,8 +397,26 @@ PortalClient::Fail(int64_t job, const std::string& summary,
 	snprintf(route, sizeof(route), "/api/client/jobs/%lld/fail",
 		(long long)job);
 	std::string reply;
-	return _Authorized(route, "{\"summary\":" + Json::Quote(summary)
+	return _Authorized("POST", route, "{\"summary\":" + Json::Quote(summary)
 		+ ",\"log\":" + Json::Quote(TailOf(log)) + "}", reply);
+}
+
+
+PortalStatus
+PortalClient::Release(int64_t job, const std::string& reason,
+	const std::string& log)
+{
+	char route[96];
+	snprintf(route, sizeof(route), "/api/client/jobs/%lld/release",
+		(long long)job);
+	std::string reply;
+	long code = 0;
+	PortalStatus status = _Authorized("POST", route, "{\"reason\":"
+		+ Json::Quote(reason) + ",\"log\":" + Json::Quote(TailOf(log)) + "}",
+		reply, &code);
+	if (code == 404)
+		return Fail(job, "infrastructure: " + reason, log);
+	return status;
 }
 
 
@@ -377,24 +425,30 @@ PortalClient::RecentPackages(const std::string& platform,
 	std::vector<PortalPackage>& packages)
 {
 	std::string reply;
+	// The newest page is enough for the window.
 	PortalStatus status = _Request("GET", "/api/repo/" + platform
-		+ "/packages", "", false, reply);
+		+ "/packages?pageSize=200", "", false, reply);
 	if (status != kPortalOk)
 		return status;
 	Json json;
-	if (!Json::Parse(reply, json) || json.GetType() != Json::kArray) {
+	bool parsed = Json::Parse(reply, json);
+	// Paged since 56dde86; a bare array before that.
+	const Json& items = parsed && json.GetType() != Json::kArray
+		? json["items"] : json;
+	if (!parsed || items.GetType() != Json::kArray) {
 		fLastError = "the package list wasn't understood";
 		return kPortalServerError;
 	}
 	packages.clear();
-	for (size_t i = 0; i < json.Size(); i++) {
-		const Json& item = json[i];
+	for (size_t i = 0; i < items.Size(); i++) {
+		const Json& item = items[i];
 		PortalPackage package;
 		package.fileName = item["fileName"].String();
 		package.portName = item["portName"].String();
 		package.builtBy = item["builtBy"].String();
 		package.uploadedAt = item["uploadedAt"].String();
 		package.size = (int64_t)item["size"].Number();
+		package.verification = item["verification"].String();
 		packages.push_back(package);
 	}
 	return kPortalOk;

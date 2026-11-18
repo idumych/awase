@@ -18,6 +18,7 @@
 #include <string.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <string>
 
 using namespace awase;
@@ -158,8 +159,38 @@ Credentials()
 		client["secret"].String());
 	CHECK(portal.Authenticate() == kPortalOk);
 	CHECK(portal.Platform() == "arm64");
+	std::string url, branch;
+	CHECK(portal.PortsRepo(url, branch) == kPortalOk);
+	CHECK(url == "https://example.invalid/RenkuOSPorts.git");
+	CHECK(branch == "main");
 	PortalJob job;
 	CHECK(portal.Next(job) == kPortalNoWork);
+}
+
+
+static int
+CompletedBuilds(const Json& state, const Json* job)
+{
+	int count = 0;
+	const Json& builds = state["builds"];
+	for (size_t i = 0; job != NULL && i < builds.Size(); i++) {
+		if (builds[i]["jobId"].Number() == (*job)["id"].Number()
+			&& builds[i]["status"].String() == "Completed")
+			count++;
+	}
+	return count;
+}
+
+
+static const Json*
+FindPackage(const Json& state, const std::string& fileName)
+{
+	const Json& packages = state["packages"];
+	for (size_t i = 0; i < packages.Size(); i++) {
+		if (packages[i]["fileName"].String() == fileName)
+			return &packages[i];
+	}
+	return NULL;
 }
 
 
@@ -174,8 +205,10 @@ BuildsSucceedAndFail()
 	LivePool pool;
 	pool.SetLimits(Unlimited());
 	pool.Start(Config(client));
-	CHECK(WaitFor("zlib", "Succeeded", 20));
 	CHECK(WaitFor("failing", "Failed", 20));
+	// One client builds zlib twice (the second time once its window has
+	// passed), and the two builds match.
+	CHECK(WaitFor("zlib", "Succeeded", 20));
 
 	Json state = Stub("/stub/state");
 	const Json* failing = FindJob(state, "failing");
@@ -186,23 +219,32 @@ BuildsSucceedAndFail()
 	// Another platform's job is left alone.
 	CHECK(JobStatus("other-arch") == "Queued");
 
-	// The uploaded package is the script's file, byte for byte.
-	const Json& packages = state["packages"];
-	CHECK(packages.Size() == 1);
+	state = Stub("/stub/state");
+	CHECK(CompletedBuilds(state, FindJob(state, "zlib")) == 2);
+
+	// The published package is the script's file, byte for byte.
+	const Json* package = FindPackage(state, "zlib-1.0-1-x86_64.hpkg");
+	CHECK(state["packages"].Size() == 1);
 	Sha256 hash;
 	std::string bytes = "mock hpkg\nport=zlib\nversion=1.0\narch=x86_64\n";
 	hash.Update(bytes.data(), bytes.size());
-	CHECK(packages[0]["fileName"].String() == "zlib-1.0-1-x86_64.hpkg");
-	CHECK(packages[0]["sha256"].String() == hash.HexDigest());
+	CHECK(package != NULL && (*package)["sha256"].String() == hash.HexDigest());
+	CHECK(package != NULL
+		&& (*package)["verification"].String() == "self-verified");
 
 	// The window's view of it
-	for (int i = 0; i < 50 && pool.Snapshot().builds < 2; i++)
+	for (int i = 0; i < 100 && (pool.Snapshot().builds < 3
+			|| pool.Snapshot().recent.empty()); i++)
 		usleep(100000);
 	LiveSnapshot snapshot = pool.Snapshot();
 	CHECK(snapshot.platform == "x86_64");
-	CHECK(snapshot.builds == 2);
-	CHECK(snapshot.succeeded == 1);
+	CHECK(snapshot.builds == 3);
+	CHECK(snapshot.succeeded == 2);
 	CHECK(snapshot.failed == 1);
+	CHECK(snapshot.recent.size() == 1);
+	CHECK(!snapshot.recent.empty() && snapshot.recent[0].Matched());
+	CHECK(std::find(snapshot.built.begin(), snapshot.built.end(), "zlib")
+		!= snapshot.built.end());
 	bool sawSuccess = false;
 	for (size_t i = 0; i < snapshot.events.size(); i++) {
 		if (snapshot.events[i].kind == kLiveSucceeded)
@@ -214,17 +256,55 @@ BuildsSucceedAndFail()
 
 
 static void
+TwoClientsVerify()
+{
+	Json first = NewClient("x86"), second = NewClient("x86");
+	setenv("SLOW_SECONDS", "4", 1);
+	QueueJob("slowpair", "x86");
+	QueueJob("withdeplib", "x86");
+
+	LivePool a, b;
+	a.SetLimits(Unlimited());
+	b.SetLimits(Unlimited());
+	a.Start(Config(first));
+	b.Start(Config(second));
+	CHECK(WaitFor("slowpair", "Succeeded", 30));
+	CHECK(WaitFor("withdeplib", "Succeeded", 30));
+	a.Stop();
+	b.Stop();
+
+	Json state = Stub("/stub/state");
+	const Json* package = FindPackage(state, "slowpair-1.0-1-x86.hpkg");
+	CHECK(package != NULL
+		&& (*package)["verification"].String() == "verified");
+	// The dependency the build made is recorded, not published.
+	CHECK(FindPackage(state, "withdeplib-1.0-1-x86.hpkg") != NULL);
+	CHECK(FindPackage(state, "depof_withdeplib-1.0-1-x86.hpkg") == NULL);
+	bool sawExtra = false;
+	const Json& builds = state["builds"];
+	for (size_t i = 0; i < builds.Size(); i++) {
+		const Json& staged = builds[i]["staged"];
+		for (size_t j = 0; j < staged.Size(); j++) {
+			if (staged[j]["extra"].Bool())
+				sawExtra = true;
+		}
+	}
+	CHECK(sawExtra);
+}
+
+
+static void
 PauseStopsTheBuild()
 {
 	Json client = NewClient("x86_64");
 	setenv("SLOW_SECONDS", "4", 1);
-	QueueJob("slow-pause");
+	QueueJob("slowpause");
 
 	LivePool pool;
 	Limits limits = Unlimited();
 	pool.SetLimits(limits);
 	pool.Start(Config(client));
-	CHECK(WaitFor("slow-pause", "InProgress", 10));
+	CHECK(WaitFor("slowpause", "InProgress", 10));
 	usleep(500000);
 
 	limits.paused = true;
@@ -234,11 +314,19 @@ PauseStopsTheBuild()
 	CHECK(pool.Snapshot().state == kLivePaused);
 	sleep(5);	// longer than the whole build
 	CHECK(pool.Snapshot().elapsed - before < 0.5);
-	CHECK(JobStatus("slow-pause") == "InProgress");
+	CHECK(JobStatus("slowpause") == "InProgress");
 
 	limits.paused = false;
 	pool.SetLimits(limits);
-	CHECK(WaitFor("slow-pause", "Succeeded", 15));
+	// The build completes (the job waits for a second build after it).
+	bool completed = false;
+	for (int i = 0; i < 150 && !completed; i++) {
+		Json state = Stub("/stub/state");
+		completed = CompletedBuilds(state, FindJob(state, "slowpause")) > 0;
+		if (!completed)
+			usleep(100000);
+	}
+	CHECK(completed);
 	LiveSnapshot snapshot = pool.Snapshot();
 	CHECK(snapshot.phase >= kPackaging || !snapshot.hasJob);
 	pool.Stop();
@@ -248,21 +336,26 @@ PauseStopsTheBuild()
 static void
 StoppingReportsTheJob()
 {
-	Json client = NewClient("x86_64");
+	// arm64: slowpause is still queued on x86_64, for its second build.
+	Json client = NewClient("arm64");
 	setenv("SLOW_SECONDS", "20", 1);
-	QueueJob("slow-stop");
+	QueueJob("slowstop", "arm64");
 
 	LivePool pool;
 	pool.SetLimits(Unlimited());
 	pool.Start(Config(client));
-	CHECK(WaitFor("slow-stop", "InProgress", 10));
+	CHECK(WaitFor("slowstop", "InProgress", 10));
 	usleep(500000);
 	pool.Stop();
 
+	// The job goes back to the queue, not to Failed.
 	Json state = Stub("/stub/state");
-	const Json* job = FindJob(state, "slow-stop");
-	CHECK(job != NULL && (*job)["status"].String() == "Failed");
-	CHECK(job != NULL && (*job)["failureSummary"].String() == "client stopped");
+	const Json* job = FindJob(state, "slowstop");
+	CHECK(job != NULL && (*job)["status"].String() == "Queued");
+	CHECK(job != NULL && (*job)["failureSummary"].String()
+		== "Released: client stopped");
+	CHECK(job != NULL && (*job)["log"].String().find("Downloading")
+		!= std::string::npos);
 }
 
 
@@ -279,6 +372,7 @@ main(int argc, char** argv)
 
 	Credentials();
 	BuildsSucceedAndFail();
+	TwoClientsVerify();
 	PauseStopsTheBuild();
 	StoppingReportsTheJob();
 

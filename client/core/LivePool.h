@@ -7,8 +7,9 @@
 
 // Building for a real coordinator: the RenkuOSPorts portal. A thread claims
 // a job, runs the build command, uploads the packages it made, and reports
-// the job done or failed, always within the volunteer's limits. The window
-// reads a copy of the state with Snapshot().
+// the build done or failed, always within the volunteer's limits. The
+// coordinator publishes a job's packages only once two builds of it match.
+// The window reads a copy of the state with Snapshot().
 
 #include <condition_variable>
 #include <mutex>
@@ -85,7 +86,7 @@ struct LiveSnapshot {
 
 	std::vector<LiveEvent> events;
 	std::vector<PortalPackage> recent;	// published, newest first
-	std::vector<std::string> published;	// ports this machine published
+	std::vector<std::string> built;		// ports this machine built
 	double				now;
 	double				nextPoll;		// seconds until the next poll
 };
@@ -97,8 +98,8 @@ public:
 								~LivePool();
 
 			void				Start(const LiveConfig& config);
-			// Stops the thread. A build in progress is stopped and reported
-			// as failed with "client stopped", as the portal's client does.
+			// Stops the thread. A build in progress is stopped and its job
+			// given back to the queue ("client stopped").
 			void				Stop();
 			bool				Running() const { return fThread.joinable(); }
 
@@ -118,7 +119,9 @@ private:
 			void				_SetState(LiveState state,
 									const std::string& message);
 			bool				_Allowed();
-			void				_Build(const PortalJob& job);
+			// False when the job was given back without a build (a local
+			// problem), so the caller waits before claiming another.
+			bool				_Build(const PortalJob& job);
 			void				_Finish(const PortalJob& job, Builder& builder,
 									const std::string& outDir);
 			void				_AddBuildTime(double seconds);
@@ -126,6 +129,8 @@ private:
 
 			LiveConfig			fConfig;
 			PortalClient		fPortal;
+			std::string			fPortsUrl;
+			std::string			fPortsBranch;
 			std::thread			fThread;
 			std::mutex			fLock;
 			std::condition_variable fWake;

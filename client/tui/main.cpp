@@ -200,7 +200,8 @@ ParseOptions(int argc, char** argv)
 
 struct RepoItem {
 	std::string	name;
-	int			state;		// 2 sealed, 1 one build in, 0 waiting, 3 building
+	int			state;		// 2 sealed, 1 one build in, 0 waiting, 3 building,
+							// 4 published without two matching builds
 	bool		mine;
 };
 
@@ -281,9 +282,9 @@ FromLive(const LiveSnapshot& live, const LiveConfig& config)
 		RepoItem item;
 		item.name = live.recent[i].portName.empty() ? live.recent[i].fileName
 			: live.recent[i].portName;
-		item.state = 2;
-		item.mine = std::find(live.published.begin(), live.published.end(),
-			item.name) != live.published.end();
+		item.state = live.recent[i].Matched() ? 2 : 4;
+		item.mine = std::find(live.built.begin(), live.built.end(),
+			item.name) != live.built.end();
 		s.repo.push_back(item);
 	}
 	char title[64];
@@ -639,6 +640,8 @@ DrawRepo(int y, int x, int h, int w, const Screen& s)
 			Put(row, x + 2, 4, kAccent, "[▸ ]");
 		else if (item.state == 1)
 			Put(row, x + 2, 4, kGold, "[·1]");
+		else if (item.state == 4)
+			Put(row, x + 2, 4, kMuted, " ·  ");
 		else
 			Put(row, x + 2, 4, kDim, "[  ]");
 		Put(row, x + 7, w - 9, item.mine ? kAccent : (item.state == 0
@@ -647,7 +650,8 @@ DrawRepo(int y, int x, int h, int w, const Screen& s)
 	if (s.repo.empty())
 		Put(y + 2, x + 2, w - 4, kMuted, "nothing published yet");
 	Put(y + h - 2, x + 2, w - 4, kMuted,
-		s.demo ? "合 sealed · ·1 one build in" : "orange: built here");
+		s.demo ? "合 sealed · ·1 one build in"
+			: "合 two builds matched · orange: built here");
 }
 
 
@@ -984,7 +988,7 @@ RunPlain(LivePool& live, const LiveConfig& config)
 		usleep(250000);
 	}
 	printf("stopping%s\n", live.Snapshot().hasJob
-		? " (the running build is reported as stopped)" : "");
+		? " (the running build is stopped and its job given back)" : "");
 	live.Stop();
 	(void)config;
 	return 0;
@@ -1100,7 +1104,7 @@ main(int argc, char** argv)
 		lastStep = now;
 		if (confirmQuit)
 			screen.message = "a build is running: press q again to stop it "
-				"and report it to the coordinator";
+				"and give the job back to the coordinator";
 		Draw(screen, limits, usage, temperature, now - start);
 		if (confirmQuit) {
 			std::string text = " Press q again to stop the build and quit ";

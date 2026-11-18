@@ -893,7 +893,7 @@ StatsView::_PaintLive(BView* canvas, BRect bounds)
 		snprintf(figures[3], 32, "%d%%", live.succeeded * 100 / live.builds);
 	else
 		snprintf(figures[3], 32, "\xe2\x80\x93");
-	static const char* kNames[] = { "builds", "published", "build-hours",
+	static const char* kNames[] = { "builds", "built", "build-hours",
 		"succeeded" };
 
 	float column = (bounds.Width() - kPad * 2) / 4;

@@ -287,6 +287,12 @@ LivePool::_Run()
 				}
 				_Event(kLiveInfo, "Connected to " + fConfig.server
 					+ " as a " + fPortal.Platform() + " build client");
+				// Older coordinators have no /me; the build command then
+				// uses its own ports tree.
+				if (fPortal.PortsRepo(fPortsUrl, fPortsBranch) == kPortalOk
+						&& !fPortsUrl.empty())
+					_Event(kLiveInfo, "Ports tree: " + fPortsUrl + " ("
+						+ fPortsBranch + ")");
 			} else {
 				std::string why = status == kPortalUnauthorized
 					? "The coordinator didn't accept this client's id and "
@@ -355,15 +361,21 @@ LivePool::_Run()
 			backoff = std::min(backoff * 2, 300.0);
 			continue;
 		}
+		if (!_Build(job)) {
+			// Given back: claiming again at once would take the same job.
+			if (!_Wait(backoff))
+				return;
+			backoff = std::min(backoff * 2, 300.0);
+			continue;
+		}
 		backoff = 10;
-		_Build(job);
 		nextPoll = 0;		// ask for the next job at once
 		nextPackages = 0;	// and show what was just published
 	}
 }
 
 
-void
+bool
 LivePool::_Build(const PortalJob& job)
 {
 	char name[48];
@@ -372,9 +384,11 @@ LivePool::_Build(const PortalJob& job)
 	std::string outDir = jobDir + "/out";
 	EmptyDirectory(outDir);
 	if (!MakeDirectories(outDir)) {
-		fPortal.Fail(job.id, "can't create " + outDir, "");
-		_Event(kLiveFailed, job.port + ": can't create the work folder");
-		return;
+		fPortal.Release(job.id, "can't create " + outDir, "");
+		_Event(kLiveProblem, job.port + ": can't create the work folder, "
+			"gave the job back");
+		_SetState(kLiveError, "Can't create " + outDir);
+		return false;
 	}
 
 	int cores;
@@ -405,19 +419,33 @@ LivePool::_Build(const PortalJob& job)
 		job.recipePath));
 	environment.push_back(std::make_pair("AWASE_CORES",
 		std::string(coresText)));
+	// The portal's container clients pass these; a build command can
+	// update its ports tree from them.
+	if (!fPortsUrl.empty()) {
+		environment.push_back(std::make_pair("RENKUPORTS_PORTS_URL",
+			fPortsUrl));
+		environment.push_back(std::make_pair("RENKUPORTS_PORTS_REF",
+			fPortsBranch.empty() ? std::string("main") : fPortsBranch));
+	}
 
 	Builder builder;
 	if (!builder.Start(fConfig.buildCommand, args, environment,
 			jobDir + "/build.log")) {
-		fPortal.Fail(job.id, "can't start the build command "
+		fPortal.Release(job.id, "can't start the build command "
 			+ fConfig.buildCommand, "");
-		_Event(kLiveFailed, job.port + ": can't start the build command");
+		_Event(kLiveProblem, job.port + ": can't start the build command, "
+			"gave the job back");
+		_SetState(kLiveError, "Can't start " + fConfig.buildCommand);
 		std::lock_guard<std::mutex> lock(fLock);
 		fState.hasJob = false;
-		return;
+		return false;
 	}
 	_SetState(kLiveBuilding, "Building " + job.port + " " + job.version);
-	_Event(kLiveStarted, "Started " + job.port + " " + job.version);
+	char buildText[32] = "";
+	if (job.build > 1)
+		snprintf(buildText, sizeof(buildText), " (build %d)", job.build);
+	_Event(kLiveStarted, "Started " + job.port + " " + job.version
+		+ buildText);
 
 	double last = _Now();
 	while (builder.Poll()) {
@@ -428,12 +456,13 @@ LivePool::_Build(const PortalJob& job)
 		}
 		if (quit) {
 			builder.Stop();
-			fPortal.Fail(job.id, "client stopped", builder.Log());
-			_Event(kLiveFailed, job.port + ": stopped with the client");
+			fPortal.Release(job.id, "client stopped", builder.Log());
+			_Event(kLiveInfo, job.port + ": stopped with the client, "
+				"gave the job back");
 			EmptyDirectory(outDir);
 			std::lock_guard<std::mutex> lock(fLock);
 			fState.hasJob = false;
-			return;
+			return true;
 		}
 
 		bool allowed = _Allowed();
@@ -464,6 +493,7 @@ LivePool::_Build(const PortalJob& job)
 	EmptyDirectory(outDir);
 	std::lock_guard<std::mutex> lock(fLock);
 	fState.hasJob = false;
+	return true;
 }
 
 
@@ -475,6 +505,7 @@ LivePool::_Finish(const PortalJob& job, Builder& builder,
 	std::vector<std::string> packages = PackagesIn(outDir);
 	std::string what = job.port + " " + job.version;
 
+	int extras = 0;
 	std::string failure;
 	if (builder.Killed())
 		failure = "the build command was killed";
@@ -495,7 +526,10 @@ LivePool::_Finish(const PortalJob& job, Builder& builder,
 			fState.toUpload = (int)packages.size();
 		}
 		for (size_t i = 0; i < packages.size(); i++) {
-			PortalStatus status = fPortal.Upload(job.id, packages[i]);
+			bool extra;
+			PortalStatus status = fPortal.Upload(job.id, packages[i], &extra);
+			if (extra)
+				extras++;
 			if (status != kPortalOk) {
 				failure = "uploading " + packages[i].substr(
 					packages[i].rfind('/') + 1) + " failed: "
@@ -516,16 +550,24 @@ LivePool::_Finish(const PortalJob& job, Builder& builder,
 	if (failure.empty()) {
 		PortalStatus status = fPortal.Complete(job.id, log);
 		if (status == kPortalOk) {
-			char buffer[32];
-			snprintf(buffer, sizeof(buffer), "%d package%s",
-				(int)packages.size(), packages.size() == 1 ? "" : "s");
-			_Event(kLiveSucceeded, what + " built and published: "
-				+ buffer);
+			// The coordinator publishes once another build matches this one.
+			int own = (int)packages.size() - extras;
+			char buffer[96];
+			snprintf(buffer, sizeof(buffer), "%d package%s", own,
+				own == 1 ? "" : "s");
+			std::string text = what + " built: " + buffer;
+			if (extras > 0) {
+				snprintf(buffer, sizeof(buffer), " (and %d dependenc%s, "
+					"not published)", extras, extras == 1 ? "y" : "ies");
+				text += buffer;
+			}
+			_Event(kLiveSucceeded, text + ", to be checked against "
+				"another build");
 			std::lock_guard<std::mutex> lock(fLock);
 			fState.succeeded++;
-			fState.published.push_back(job.port);
-			if (fState.published.size() > 200)
-				fState.published.erase(fState.published.begin());
+			fState.built.push_back(job.port);
+			if (fState.built.size() > 200)
+				fState.built.erase(fState.built.begin());
 			return;
 		}
 		if (status == kPortalConflict || status == kPortalForbidden) {

@@ -189,8 +189,8 @@ MainWindow::MessageReceived(BMessage* message)
 bool
 MainWindow::QuitRequested()
 {
-	// Stopping reports a build in progress as failed, so the coordinator
-	// can hand it out again at once instead of waiting out the lease.
+	// Stopping gives a build in progress back to the coordinator, so it can
+	// hand the job out again at once instead of waiting out the lease.
 	fLive.Stop();
 	_SaveSettings();
 	be_app->PostMessage(B_QUIT_REQUESTED);

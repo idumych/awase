@@ -469,18 +469,18 @@ PoolView::_PaintLive(BView* canvas, BRect bounds)
 			bounds.top + 57));
 
 	// Legend
-	float lx = bounds.right - kSide - 230, ly = bounds.top + 52;
+	float lx = bounds.right - kSide - 250, ly = bounds.top + 52;
 	DrawSeal(canvas, BPoint(lx + 7, ly - 4), 7);
 	canvas->SetFont(&mono);
 	canvas->SetHighColor(kMuted);
-	canvas->DrawString("published", BPoint(lx + 20, ly));
-	lx += 110;
+	canvas->DrawString("2 builds match", BPoint(lx + 20, ly));
+	lx += 130;
 	canvas->SetPenSize(1.6f);
 	canvas->SetHighColor(kFire);
 	canvas->StrokeRoundRect(BRect(lx, ly - 11, lx + 14, ly + 3), 4, 4);
 	canvas->SetPenSize(1);
 	canvas->SetHighColor(kMuted);
-	canvas->DrawString("by you", BPoint(lx + 22, ly));
+	canvas->DrawString("built here", BPoint(lx + 22, ly));
 
 	// The packages as a wall of seals
 	BRect area(bounds.left + kSide, bounds.top + kTop + 4,
@@ -499,8 +499,8 @@ PoolView::_PaintLive(BView* canvas, BRect bounds)
 		int cell = i + first;
 		BPoint at(area.left + (cell % columns + 0.5f) * cellWidth,
 			area.top + (cell / columns + 0.5f) * cellHeight - 6);
-		bool mine = std::find(live.published.begin(), live.published.end(),
-			package.portName) != live.published.end();
+		bool mine = std::find(live.built.begin(), live.built.end(),
+			package.portName) != live.built.end();
 		if (mine) {
 			canvas->SetPenSize(1.6f);
 			canvas->SetHighColor(Alpha(kFire, 220));
@@ -508,7 +508,15 @@ PoolView::_PaintLive(BView* canvas, BRect bounds)
 				at.y + 15), 6, 6);
 			canvas->SetPenSize(1);
 		}
-		DrawSeal(canvas, at, kSealHalf);
+		if (package.Matched())
+			DrawSeal(canvas, at, kSealHalf);
+		else {
+			// Published without two matching builds (imported, older, or
+			// approved by an admin): an empty frame where the seal would be.
+			canvas->SetHighColor(Alpha(kWashi, 90));
+			canvas->StrokeRoundRect(BRect(at.x - kSealHalf, at.y - kSealHalf,
+				at.x + kSealHalf, at.y + kSealHalf), 3, 3);
+		}
 		std::string name = package.portName.empty() ? package.fileName
 			: package.portName;
 		BString text(name.c_str());

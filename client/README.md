@@ -13,21 +13,37 @@ machine's build client ID and secret (made on the coordinator's Clients
 page; the secret is shown once), and a build command. Awase then does
 what the portal's own client does, with the same build-command contract:
 
-- claims the oldest queued job for its client's platform;
+- claims the next queued job for its client's platform (the coordinator
+  orders them by build priority, then age);
 - runs `<build command> <port> <version> <outdir>` with
   `RENKUPORTS_PLATFORM`, `RENKUPORTS_JOB_ID` and `RENKUPORTS_RECIPE_PATH`
-  set (and `AWASE_CORES`, the cores you lend);
+  set, `RENKUPORTS_PORTS_URL` and `RENKUPORTS_PORTS_REF` when the
+  coordinator names the ports repository it builds from (as the portal's
+  container clients get them), and `AWASE_CORES`, the cores you lend;
 - uploads every `.hpkg` the command left in `<outdir>`, each with its
-  SHA-256, then completes the job with the log, or fails it with a reason;
-- on quit, stops a running build and reports it failed ("client
-  stopped"), so the job goes back to the queue at once.
+  SHA-256, then completes the build with the log, or fails the job with a
+  reason. Packages of other ports (dependencies the build made on the way)
+  are recorded by the coordinator but not published;
+- on quit, stops a running build and gives the job back ("client
+  stopped"), so it goes back to the queue at once without counting as a
+  failure. A local problem (the work folder can't be made, the build
+  command won't start) gives the job back too, and Awase waits before
+  claiming again. A coordinator older than the release route gets a
+  failure with "infrastructure: <reason>" instead.
 
 Pause and "When idle" stop the build's whole process group and resume
 it. The window shows the build's step (from HaikuPorter's messages,
 roughly), its last log line, the time so far, and the coordinator's
-published packages for the platform, with this machine's ringed. The
-coordinator publishes a package from one build; the two-build check is
-only in the demo for now.
+published packages for the platform, with the ports this machine built
+ringed.
+
+The coordinator now does the two-build check itself: every job is built
+twice and published only when both builds have the same contents, with a
+different client preferred for the second build. A completed build is
+therefore "built, to be checked against another build", not published
+yet. A published package that two builds matched gets the 合 seal; one
+published without (imported, older than the check, or approved by an
+admin despite a difference) gets an empty frame.
 
 `scripts/awase-mock-build.sh` is a stand-in build command that makes a
 small fake package, for trying the whole path without building anything.
@@ -46,13 +62,14 @@ live loop) in a tiled terminal layout, after the "Tiled" mockup.
 
 - A top bar: what's building, the cores lent, the CPU temperature when the
   machine reports one, the coordinator and the time.
-- The repository's published packages (this machine's in orange), the
+- The repository's published packages (合 when two builds matched, the
+  ports this machine built in orange), the
   build with its steps and live log, the CPU use of every core, this
   machine's totals and build-time history, and the coordinator's events.
 - One column on narrow terminals (80×24 works).
 - Keys: `p` pause (the build's process group is stopped, not killed),
   `+`/`-` cores, `t` theme (kiln, ember, tide), `q` quit (asks first if a
-  build is running, then reports it as stopped).
+  build is running, then gives its job back).
 - `--plain` prints one timestamped line per event instead, for systemd and
   log files. `--demo` shows the simulated pool.
 
@@ -83,7 +100,8 @@ core/        portable C++, no Haiku headers:
              Pool, DemoPool    the pool's rules and the demo
              Portal            the coordinator's build-client API (libcurl)
              Builder           runs a build command, pauses it
-             LivePool          claim, build, upload, report, on a thread
+             LivePool          claim, build, upload, report or give back,
+                               on a thread
              Json, Sha256
 app/         the Be API app: the window, its hand-drawn views, and the
              Coordinator window
@@ -112,9 +130,12 @@ make HAIKU_CROSS=1
 `make test` builds and runs the tests with the host compiler (it needs
 libcurl and python3): the pool's rules, then the coordinator client
 against `tests/portal_stub.py`, which follows the portal's
-`BuildClientApi.cs`: claiming, uploads with their SHA-256 checked, a 409
-for a different package of the same name, failing, pausing a build, and
-stopping mid-build.
+`BuildClientApi.cs` as of commit 56dde86: claiming builds, uploads staged
+with their SHA-256 checked (a 409 for a different package of the same
+name, other ports' packages as extras), the two-build check (one client
+after its window, or two clients), failing, `/api/client/me`, the paged
+package list, pausing a build, and stopping mid-build (the job given
+back).
 
 ## Tested
 
@@ -130,6 +151,11 @@ stopping mid-build.
   failed build reported, the build's log followed live, a closed terminal
   and SIGTERM in `--plain` both reporting the running build as stopped,
   and a secret file readable by others refused.
+- After the portal's two-build check (commit 56dde86): `make test`, and
+  awase-tui `--plain` against the stand-in: two jobs each built twice and
+  published, a dependency recorded as an extra, and a build stopped with
+  the client going back to the queue. The Renku app was cross-built, not
+  run again in QEMU.
 - Not tested yet: the real portal server (it needs SQL Server and blob
   storage; the stand-in follows its code), a real HaikuPorter build, real
   hardware, the Linux build through Hokku.
