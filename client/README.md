@@ -6,6 +6,22 @@ portal at [Druware/RenkuOSPorts-Portal](https://github.com/Druware/RenkuOSPorts-
 or shows a **simulated demo pool** of the two-build design, in which
 nothing is built or uploaded.
 
+The same source builds for Renku OS and Haiku (`.hpkg`, amd64 and arm64),
+for Linux as an AppImage (x86_64 and aarch64, through
+[Hokku](https://github.com/idumych/hokku), a fork of Cosmoe), and for
+VitruvianOS, a BeOS-like OS based on Linux (`.deb`, amd64 and arm64).
+Downloads are on the [releases page](https://github.com/idumych/awase/releases).
+
+## Screenshots
+
+![Awase on Haiku R1/beta6: the demo pool with seals, glowing threads and builds in flight](docs/screenshots/haiku-demo-pool.png)
+
+The demo pool on Haiku R1/beta6.
+
+![Awase on Linux under Wayland: a seal landing on readline](docs/screenshots/linux-demo-pool.png)
+
+The AppImage on Linux (aarch64, Wayland), as a seal lands on readline.
+
 ## Building for a coordinator
 
 Choose Pool › Coordinator… and enter the coordinator's address, this
