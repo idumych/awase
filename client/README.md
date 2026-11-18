@@ -156,7 +156,7 @@ static awase-tui for x86, x86_64, arm64 and riscv64 on any Linux host with
 clang, lld and python3. It unpacks Alpine's musl, OpenSSL, zlib and
 ncurses packages as sysroots (as plain archives; nothing from them is run)
 and builds libcurl itself with HTTP and HTTPS only, then writes
-`release/awase-tui-<version>-linux-<arch>.tar.gz` and `SHA256SUMS`. The
+`dist/tui-<version>/awase-tui-<version>-linux-<arch>.tar.gz` and `SHA256SUMS`. The
 binaries find CA certificates and terminfo where the common distributions
 keep them (`SSL_CERT_FILE` and `TERMINFO_DIRS` override).
 

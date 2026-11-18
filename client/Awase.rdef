@@ -9,12 +9,12 @@ resource app_flags B_SINGLE_LAUNCH;
 
 resource app_version {
 	major = 0,
-	middle = 1,
+	middle = 3,
 	minor = 0,
 	variety = B_APPV_DEVELOPMENT,
 	internal = 0,
 	short_info = "Awase",
-	long_info = "Awase 0.1: volunteer package builds for Renku OS (demo pool)"
+	long_info = "Awase 0.3: volunteer package builds for Renku OS"
 };
 
 resource file_types message {

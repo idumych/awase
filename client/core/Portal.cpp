@@ -23,7 +23,7 @@ namespace awase {
 // The server keeps the last 5 MB of a log; send no more than that.
 static const size_t kMaxLog = 5 * 1024 * 1024;
 static const long kTimeoutSeconds = 120;
-static const char* kUserAgent = "Awase/0.2";
+static const char* kUserAgent = "Awase/0.3";
 
 
 static size_t

@@ -1,0 +1,3 @@
+Awase lends your computer's idle time to build Renku OS packages, like SETI@home or a mining pool. It claims build jobs from a RenkuOSPorts coordinator, runs your build command, uploads the packages and reports back, within the limits you set: how many cores, only when the computer is idle, and a temperature above which builds pause.
+
+Every package is built twice, on different machines where possible, and published only when both builds match. Awase shows the pool as packages in dependency order, with each build travelling to its package and a seal where two builds matched. Without a coordinator it shows a simulated demo pool.

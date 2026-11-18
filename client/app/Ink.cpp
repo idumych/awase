@@ -76,7 +76,8 @@ InitFonts()
 	sCjk = *be_bold_font;
 	if (!TryFont(sCjk, "Noto Sans CJK JP", "Bold")
 		&& !TryFont(sCjk, "Noto Sans CJK JP", "Regular")
-		&& !TryFont(sCjk, "Noto Sans CJK SC", "Bold"))
+		&& !TryFont(sCjk, "Noto Sans CJK SC", "Bold")
+		&& !TryFont(sCjk, "IPAGothic", "Regular"))	// the AppImage's
 		sCjk = *be_bold_font;
 }
 

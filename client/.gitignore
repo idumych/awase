@@ -3,4 +3,12 @@
 /.sysroot-x86_64/
 /awase-tui
 /.release-work/
-/release/
+
+/obj/
+/dist/
+*.hpkg
+*.AppImage
+*.deb
+/.cosmoe/
+/.haiku-headers/
+/.vos-sdk/

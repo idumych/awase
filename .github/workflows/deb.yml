@@ -1,0 +1,91 @@
+name: deb
+
+# A VitruvianOS (V\OS) build, on request only: the .debs for amd64 and arm64, each built
+# natively in a Debian trixie container (V\OS 0.6's userland, glibc 2.41) on GitHub's
+# ubuntu-24.04 / ubuntu-24.04-arm runners, against the link-time V\OS 0.6.3 SDK from
+# client/tools/vos-sdk/ (cached per architecture). It never runs on a tag: V\OS isn't
+# one of the release gate's platforms, so a tested .deb is attached to a release by hand.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# The app is in client/ of this repo.
+defaults:
+  run:
+    working-directory: client
+
+jobs:
+  deb:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    container: debian:trixie
+    steps:
+      - name: Install build dependencies
+        working-directory: .
+        run: |
+          apt-get update
+          # VitruvianOS's own build deps (its ccpp-arm64.yml), minus image tooling and the
+          # kits the link-only patch leaves out; media2's (PipeWire, GStreamer, FluidSynth);
+          # plus packaging tools.
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            ca-certificates git curl file python3 attr dpkg-dev gh \
+            cmake ninja-build build-essential bison flex libfl-dev m4 pkg-config \
+            zlib1g-dev libicu-dev libfreetype6-dev libpng-dev libjpeg-dev libgif-dev \
+            libtiff-dev libwebp-dev libicns-dev libopenexr-dev libdrm-dev libinput-dev \
+            libevdev-dev libseat-dev libelf-dev libncurses-dev libpam0g-dev libglib2.0-dev \
+            libudev-dev libsystemd-dev libblkid-dev libxkbcommon-dev \
+            libpipewire-0.3-dev libspa-0.2-dev libgstreamer1.0-dev \
+            libgstreamer-plugins-base1.0-dev libfluidsynth-dev
+
+      - uses: actions/checkout@v4
+
+      - name: App settings
+        id: app
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          . ./haiku-app.env
+          echo "cmd=$APP_CMD" >> "$GITHUB_OUTPUT"
+          EXTRA="$DEB_APT_EXTRA"
+          if [ -n "$EXTRA" ]; then DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends $EXTRA; fi
+
+      # Restored and saved separately, so a failure in a later step keeps them.
+      - name: Restore V\OS SDK
+        id: sdk
+        uses: actions/cache/restore@v4
+        with:
+          path: /opt/vos-sdk
+          key: vos-sdk-0.6.3-${{ matrix.arch }}-${{ hashFiles('client/tools/vos-sdk/*') }}-debian-trixie
+
+      - name: Build V\OS SDK
+        if: steps.sdk.outputs.cache-hit != 'true'
+        run: sh tools/vos-sdk/make-sdk.sh /opt/vos-sdk
+
+      - name: Save V\OS SDK
+        if: steps.sdk.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: /opt/vos-sdk
+          key: ${{ steps.sdk.outputs.cache-primary-key }}
+
+      - name: Build .deb
+        run: |
+          . /opt/vos-sdk/sdk/env.sh
+          sh packaging/build-deb.sh
+          ls -l ${{ steps.app.outputs.cmd }}_*_${{ matrix.arch }}.deb
+          dpkg-deb -I ${{ steps.app.outputs.cmd }}_*_${{ matrix.arch }}.deb
+          file obj/deb/*/system/apps/*
+          echo "glibc needed: $(objdump -T obj/deb/*/system/apps/* | grep -oE 'GLIBC_[0-9.]+' | sort -Vu | tail -1)"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deb-${{ matrix.arch }}
+          path: client/${{ steps.app.outputs.cmd }}_*_${{ matrix.arch }}.deb

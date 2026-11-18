@@ -3,7 +3,7 @@
 #
 # Builds static awase-tui binaries for Linux, one per platform the portal
 # builds packages for (x86, x86_64, arm64, riscv64, or the ARCHs given),
-# into release/awase-tui-VERSION-linux-ARCH.tar.gz with SHA256SUMS.
+# into dist/tui-VERSION/awase-tui-VERSION-linux-ARCH.tar.gz with SHA256SUMS.
 #
 # Cross-compiled with clang and lld on any Linux host, against Alpine
 # sysroots (musl, OpenSSL, zlib, ncurses: tools/alpine-sysroot.py) and a
@@ -18,7 +18,7 @@ VERSION=$1; shift
 ARCHS=${*:-x86 x86_64 arm64 riscv64}
 HERE=$(cd "$(dirname "$0")/.." && pwd)
 WORK=$(mkdir -p "${WORK:-$HERE/.release-work}" && cd "${WORK:-$HERE/.release-work}" && pwd)
-OUT=$HERE/release
+OUT=$HERE/dist/tui-$VERSION
 CURL=8.23.0
 # Alpine's aports, main/curl/APKBUILD (3.24-stable)
 CURL_SHA512=69cf0feafdc79fbad007cf2fc977b777ce6ccb05d01afd17b5a42f8bedbfcc342fc3a48193faa7f3eafe6800cd7d07948916e8733db1b9de60287ed06219b840
