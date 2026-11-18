@@ -38,6 +38,8 @@ The settings, including the client's secret, are kept in
 
 ## awase-tui: the terminal client for Linux servers
 
+![awase-tui running the demo pool, switching between its kiln, ember and tide themes](docs/awase-tui.gif)
+
 The same client for machines without a desktop, such as a VPS or a build
 box reached over SSH: the same core (coordinator protocol, build runner,
 live loop) in a tiled terminal layout, after the "Tiled" mockup.

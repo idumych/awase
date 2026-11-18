@@ -8,7 +8,9 @@ Awase is a proposed app for volunteer package builds for [Renku OS](https://renk
 - **How it runs** (orchestration, deploying the orchestrator, platform definitions, scheduling): https://idumych.github.io/awase/orchestration.html
 - **Proposal:** [PROPOSAL.md](PROPOSAL.md)
 
-Nothing is running yet. This repository holds the proposal and its website, for the Renku OS contributors to discuss.
+The client is in [client/](client/): a native app for Renku OS, and `awase-tui` for Linux servers. Both build for the [RenkuOSPorts portal](https://github.com/Druware/RenkuOSPorts-Portal) as a build client. The two-build check is still a proposal.
+
+![awase-tui running its demo pool](client/docs/awase-tui.gif)
 
 ## The site
 
