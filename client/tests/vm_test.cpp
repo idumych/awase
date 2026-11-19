@@ -106,7 +106,9 @@ HostChecks(const std::string& work)
 		host = CheckHost(work, std::vector<std::string>(1, locked));
 		CHECK(!host.accel);
 		CHECK(host.accelDenied);
-		CHECK(host.Refusal().find("group") != std::string::npos);
+		// (elsewhere the refusal is that it isn't an x86_64 machine)
+		if (host.x86_64)
+			CHECK(host.Refusal().find("group") != std::string::npos);
 	}
 	host = CheckHost(work);
 	printf("host checks: %s, %s, %s: %s\n", host.cpu.c_str(),
