@@ -25,6 +25,10 @@ CXXFLAGS ?= -O2
 override CXXFLAGS += -std=c++17 -Wall -Wextra -Wno-unused-parameter \
 	-Wno-multichar -Wno-deprecated-copy -Icore -Iapp
 UNAME := $(shell uname -s)
+MACHINE := $(shell uname -m)
+# The x86 build VM runs only on x86_64 (NVMM on Haiku, KVM on Linux):
+# elsewhere the lite build, without it
+NO_VM := $(if $(filter x86_64,$(MACHINE)),,-DAWASE_NO_VM)
 COSMOE_ROOT ?= /usr
 ifeq ($(HAIKU_CROSS)$(filter Haiku,$(UNAME)),)
 VOS := $(shell pkg-config --exists vos 2>/dev/null && echo 1)
@@ -74,7 +78,7 @@ else ifneq ($(VOS),)
   PLATFORM := vos
   RC := rc
   override CXXFLAGS += $(shell pkg-config --cflags vos) -DAPP_VOS -fPIC \
-	-Wno-deprecated-copy
+	-Wno-deprecated-copy $(NO_VM)
   LIBS := $(shell pkg-config --libs vos) $(APP_LIBS)
   MIMESET := true
   RESOURCES = xres -o $(CURDIR)/$@ $(CURDIR)/obj/$(NAME).rsrc \
@@ -86,7 +90,8 @@ else ifneq ($(wildcard $(COSMOE_ROOT)/include/os/app/Application.h),)
 	os/kernel os/locale os/media os/net os/storage os/support os/translation \
 	os/be_apps/Tracker private/interface private/shared private/support posix
   override CXXFLAGS += -I$(COSMOE_ROOT)/include \
-	$(addprefix -I$(COSMOE_ROOT)/include/,$(COSMOE_DIRS)) -DAPP_COSMOE -fPIC
+	$(addprefix -I$(COSMOE_ROOT)/include/,$(COSMOE_DIRS)) -DAPP_COSMOE -fPIC \
+	$(NO_VM)
   # libbe finds Cosmoe's add-ons and data next to itself, so the AppImage works
   # wherever it is mounted
   COSMOE_RPATH ?= $$ORIGIN/../lib

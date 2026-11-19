@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "LivePool.h"
+#include "VmHost.h"
 #include "VmService.h"
 
 
@@ -46,8 +47,8 @@ struct Model {
 };
 
 
-// The x86 build VM needs NVMM, which only x86 machines have: the lite
-// build (Renku arm64, make defines AWASE_NO_VM) offers no way to it.
+// The x86 build VM needs an x86 machine with NVMM (Haiku) or KVM (Linux):
+// the lite builds for arm64 (make defines AWASE_NO_VM) offer no way to it.
 #ifdef AWASE_NO_VM
 static const bool kHasVm = false;
 #else

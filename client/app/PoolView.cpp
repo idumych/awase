@@ -760,7 +760,8 @@ PoolView::_PaintLive(BView* canvas, BRect bounds)
 		BFont vmMono = Mono(9.5f);
 		canvas->SetFont(&vmMono);
 		canvas->SetHighColor(kMuted);
-		canvas->DrawString("x86 \xc2\xb7 NVMM", BPoint(vmAt.x + 16, vmAt.y + 12));
+		std::string vmWhat = std::string("x86 \xc2\xb7 ") + HostAccelerator().name;
+		canvas->DrawString(vmWhat.c_str(), BPoint(vmAt.x + 16, vmAt.y + 12));
 	}
 
 	if (live.hasJob) {

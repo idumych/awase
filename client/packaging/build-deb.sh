@@ -42,6 +42,11 @@ mkdir -p "$PKG/DEBIAN" "$PKG/system/apps" "$PKG/system/data/deskbar/menu/Applica
 	"$PKG/usr/bin" "$PKG/usr/share/$APP_CMD" "$PKG/usr/share/doc/$APP_CMD"
 install -m 0755 "$APP_NAME" "$PKG/system/apps/$APP_NAME"
 ln -s "/system/apps/$APP_NAME" "$PKG/system/data/deskbar/menu/Applications/$APP_NAME"
+# bfs_shell, for the x86 VM's install (amd64; the arm64 build is the lite one)
+if [ -x bfs/bfs_shell ]; then
+	install -D -m 0755 bfs/bfs_shell "$PKG/usr/lib/$APP_CMD/bfs_shell"
+	install -D -m 0644 bfs/libroot_build.so "$PKG/usr/lib/$APP_CMD/libroot_build.so"
+fi
 ln -s "/system/apps/$APP_NAME" "$PKG/usr/bin/$APP_CMD"
 
 # 3. Attributes. dpkg drops xattrs, so they ship on an EMPTY placeholder in a
@@ -83,6 +88,7 @@ Depends: ${VOS_DEPENDS}, libc6 (>= 2.38), libstdc++6 (>= 11), libgcc-s1 (>= 3.0)
 Section: ${DEB_SECTION}
 Priority: optional
 Homepage: ${HOMEPAGE}
+Suggests: qemu-system-x86
 Description: ${SUMMARY}
 ${LONGDESC}
 EOF

@@ -222,6 +222,11 @@ void
 VmView::_Check()
 {
 	fHost = CheckHost(fDir);
+	std::vector<std::string> argv;
+	if (QemuInstallCommand(argv, fQemuHow).empty())
+		fQemuHow = "Install it first: " + fQemuHow;
+	else
+		fQemuHow = "Awase installs it: " + fQemuHow;
 	struct stat st;
 	// A disk from an earlier setup is replaced, so its space counts as free
 	if (stat((fDir + "/disk.img").c_str(), &st) == 0)
@@ -495,11 +500,12 @@ VmView::Paint(BView* canvas, BRect bounds)
 void
 VmView::_PaintChoose(BView* canvas, BRect bounds)
 {
+	const Accelerator& accel = HostAccelerator();
+	std::string intro = std::string("Awase runs a 32-bit Renku in a virtual "
+		"machine, in QEMU with ") + accel.name + ", and hands it the pool's x86 "
+		"jobs. It builds only within your limits, like everything else.";
 	_Header(canvas, bounds, "BUILD FOR MORE ARCHITECTURES", kFire2,
-		"Let this machine build x86 too",
-		"Awase runs a 32-bit Renku in a virtual machine, in QEMU with NVMM, "
-		"and hands it the pool's x86 jobs. It builds only within your limits, "
-		"like everything else.");
+		"Let this machine build x86 too", intro.c_str());
 
 	// This machine
 	float left = kPad, column = 268;
@@ -508,8 +514,8 @@ VmView::_PaintChoose(BView* canvas, BRect bounds)
 	y += 26;
 	y = _Item(canvas, left, y, column, kIconDone, "64-bit x86",
 		fHost.cpu.empty() ? std::string("x86_64") : fHost.cpu) + 6;
-	y = _Item(canvas, left, y, column, kIconDone, "NVMM",
-		"Haiku's hardware virtualization, using "
+	y = _Item(canvas, left, y, column, kIconDone, accel.name,
+		std::string(accel.what) + ", using "
 			+ (fHost.virt.empty() ? std::string("the processor") : fHost.virt))
 		+ 6;
 	std::string memory = FormatBytes(fHost.memoryTotal) + " memory";
@@ -523,14 +529,14 @@ VmView::_PaintChoose(BView* canvas, BRect bounds)
 			: "The VM needs about 22 GB free") + 6;
 	if (fHost.qemu.empty())
 		_Item(canvas, left, y, column, kIconWarn, "QEMU isn't installed",
-			"Awase installs it from HaikuPorts (about 60 MB)");
+			fQemuHow);
 	else
 		_Item(canvas, left, y, column, kIconDone, "QEMU is installed",
 			fHost.qemu);
 	canvas->SetHighColor(kMuted);
-	Wrap(canvas, Body(11.5f), "NVMM runs the VM on the CPU itself, so it "
-		"builds close to native speed.", left, bounds.bottom - kFooterHeight
-			- 38, column, 16);
+	Wrap(canvas, Body(11.5f), std::string(accel.name) + " runs the VM on the "
+		"CPU itself, so it builds close to native speed.", left,
+		bounds.bottom - kFooterHeight - 38, column, 16);
 
 	canvas->SetHighColor(Alpha(kWashi, 22));
 	canvas->StrokeLine(BPoint(left + column + 18, kHeaderHeight),
@@ -565,13 +571,13 @@ VmView::_PaintChoose(BView* canvas, BRect bounds)
 	canvas->SetHighColor(kWashi);
 	canvas->DrawString("x86", BPoint(tx, card.top + 27));
 	BFont chipFont = Mono(10.5f);
-	BRect chip(tx + 36, card.top + 14, tx + 36 + chipFont.StringWidth("NVMM")
-		+ 14, card.top + 31);
+	BRect chip(tx + 36, card.top + 14, tx + 36
+		+ chipFont.StringWidth(accel.name) + 14, card.top + 31);
 	canvas->SetHighColor(Alpha(kFire, 40));
 	canvas->FillRoundRect(chip, 4, 4);
 	canvas->SetFont(&chipFont);
 	canvas->SetHighColor(kFire2);
-	canvas->DrawString("NVMM", BPoint(chip.left + 7, chip.top + 12));
+	canvas->DrawString(accel.name, BPoint(chip.left + 7, chip.top + 12));
 	canvas->SetHighColor(kWashi2);
 	Wrap(canvas, Body(12), "Renku x86_gcc2h nightly, the pool's x86 "
 		"platform. Accelerated: close to native speed.", tx, card.top + 50,
@@ -606,10 +612,10 @@ VmView::_PaintChoose(BView* canvas, BRect bounds)
 	canvas->SetFont(&chipFont);
 	canvas->DrawString("NOT OFFERED", BPoint(other.left + 24
 		+ otherTitle.StringWidth("arm64, riscv64"), other.top + 21));
-	Wrap(canvas, Body(11.5f), "NVMM can only run x86 code. Other architectures "
-		"would be emulated, far too slowly to build for the pool, so Awase "
-		"doesn't set them up.", other.left + 14, other.top + 42,
-		other.Width() - 28, 16);
+	Wrap(canvas, Body(11.5f), std::string("On an x86 machine, ") + accel.name
+		+ " runs only x86 code. Other architectures would be emulated, far too "
+		"slowly to build for the pool, so Awase doesn't set them up.",
+		other.left + 14, other.top + 42, other.Width() - 28, 16);
 
 	_Footer(canvas, bounds, "Downloads about 700 MB once.");
 	bool filled = strlen(fClient->Text()) > 0 && strlen(fSecret->Text()) > 0;
@@ -625,11 +631,14 @@ VmView::_PaintChoose(BView* canvas, BRect bounds)
 void
 VmView::_PaintDeclined(BView* canvas, BRect bounds)
 {
-	_Header(canvas, bounds, "NEEDS NVMM", kGold,
-		"This machine can't run the x86 VM",
-		"Awase builds in a VM only with NVMM, Haiku's hardware virtualization. "
-		"Without it the VM would be emulated, far too slowly to build for the "
-		"pool, so Awase won't set one up.");
+	const Accelerator& accel = HostAccelerator();
+	std::string needs = std::string("NEEDS ") + accel.name;
+	std::string intro = std::string("Awase builds in a VM only with ")
+		+ accel.name + ", " + accel.what + ". Without it the VM would be "
+		"emulated, far too slowly to build for the pool, so Awase won't set "
+		"one up.";
+	_Header(canvas, bounds, needs.c_str(), kGold,
+		"This machine can't run the x86 VM", intro.c_str());
 
 	float left = kPad, width = bounds.Width() - kPad * 2;
 	float y = kHeaderHeight + 30;
@@ -645,14 +654,17 @@ VmView::_PaintDeclined(BView* canvas, BRect bounds)
 		canvas->FillRoundRect(box, 8, 8);
 		canvas->SetHighColor(Alpha(kGold, 90));
 		canvas->StrokeRoundRect(box, 8, 8);
-		std::string why = fHost.Refusal() + " Inside a virtual machine, the "
-			"host has to pass virtualization through (\"nested "
-			"virtualization\").";
-		y = _Item(canvas, left, y, width, kIconFail, "NVMM isn't available",
-			why) + 22;
+		std::string why = fHost.Refusal();
+		if (!fHost.accelDenied)
+			why += " Inside a virtual machine, the host has to pass "
+				"virtualization through (\"nested virtualization\").";
+		std::string title = std::string(accel.name) + (fHost.accelDenied
+			? " isn't yours to use" : " isn't available");
+		y = _Item(canvas, left, y, width, kIconFail, title.c_str(), why) + 22;
 	}
 	_Item(canvas, left, y, width, kIconSkipped, "Memory, disk, QEMU",
-		"Not checked: nothing is installed or downloaded without NVMM");
+		std::string("Not checked: nothing is installed or downloaded without ")
+			+ accel.name);
 
 	canvas->SetHighColor(kWashi2);
 	Wrap(canvas, Body(12.5f), "Awase keeps building for this machine's own "

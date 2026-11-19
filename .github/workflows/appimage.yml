@@ -65,6 +65,13 @@ jobs:
           path: client/.cosmoe/stage
           key: cosmoe-${{ steps.app.outputs.cosmoe }}-ubuntu-24.04-${{ matrix.arch }}-release
 
+      # haiku-app.env APPIMAGE_PREBUILD: a command that makes files the AppImage
+      # bundles (APPIMAGE_EXTRA_FILES), with ARCH set to x86_64 or aarch64
+      - name: Pre-build
+        run: |
+          . ./haiku-app.env
+          if [ -n "${APPIMAGE_PREBUILD:-}" ]; then ARCH=${{ matrix.arch }} sh -c "$APPIMAGE_PREBUILD"; fi
+
       - name: Build AppImage
         run: |
           sh packaging/appimage/build-appimage.sh

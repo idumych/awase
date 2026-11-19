@@ -30,7 +30,7 @@ namespace awase {
 
 static const char* kStepTitles[kStepCount] = {
 	"Install QEMU",
-	"Check NVMM",
+	NULL,	// "Check NVMM" or "Check KVM": the constructor names it
 	"Download Renku x86_gcc2h",
 	"Check the image",
 	"Install Renku on a 20 GB disk",
@@ -166,7 +166,8 @@ VmSetup::VmSetup()
 	fState.secondsLeft = -1;
 	for (int i = 0; i < kStepCount; i++) {
 		VmStep step;
-		step.title = kStepTitles[i];
+		step.title = kStepTitles[i] != NULL ? kStepTitles[i]
+			: std::string("Check ") + HostAccelerator().name;
 		step.state = kStepWaiting;
 		step.fraction = 0;
 		step.seconds = 0;
@@ -196,7 +197,11 @@ VmSetup::DefaultConfig(const std::string& dir)
 		= "https://api.github.com/repos/RenkuOS/Source/releases/tags/nightly";
 	config.imagePattern = "RenkuOS-x86_gcc2h-";
 	config.repoName = "renkuos-x86_gcc2-repo.tar";
+#ifdef __HAIKU__
 	config.seed = WriteSeedHaiku;
+#else
+	config.seed = WriteSeedBfsShell;
+#endif
 	config.testPort = "zlib";
 	return config;
 }
@@ -387,18 +392,16 @@ VmSetup::_InstallQemu()
 		_Finish(kStepInstallQemu, "already installed");
 		return true;
 	}
-	std::string pkgman = FindProgram("pkgman");
-	if (pkgman.empty())
-		return _Fail(kStepInstallQemu, "pkgman isn't there to install QEMU");
-	_Progress(kStepInstallQemu, -1, "qemu from HaikuPorts");
 	std::vector<std::string> args;
-	args.push_back("install");
-	args.push_back("-y");
-	args.push_back("qemu");
+	std::string describe;
+	std::string program = QemuInstallCommand(args, describe);
+	if (program.empty())
+		return _Fail(kStepInstallQemu, describe);
+	_Progress(kStepInstallQemu, -1, describe);
 	Builder run;
-	if (!run.Start(pkgman, args, NoEnvironment(),
-			fConfig.vm.dir + "/pkgman.log"))
-		return _Fail(kStepInstallQemu, "pkgman didn't start");
+	if (!run.Start(program, args, NoEnvironment(),
+			fConfig.vm.dir + "/install-qemu-packages.log"))
+		return _Fail(kStepInstallQemu, "the package manager didn't start");
 	while (run.Poll()) {
 		if (_Cancelled()) {
 			run.Stop();
@@ -411,10 +414,10 @@ VmSetup::_InstallQemu()
 	fConfig.vm.qemu = FindProgram("qemu-system-i386");
 	if (run.ExitCode() != 0 || fConfig.vm.qemu.empty()) {
 		std::string line = run.LastLine();
-		return _Fail(kStepInstallQemu, "pkgman couldn't install QEMU"
+		return _Fail(kStepInstallQemu, "couldn't install QEMU"
 			+ (line.empty() ? std::string() : ": " + line));
 	}
-	_Finish(kStepInstallQemu, "qemu from HaikuPorts");
+	_Finish(kStepInstallQemu, describe);
 	return true;
 }
 
@@ -422,11 +425,15 @@ VmSetup::_InstallQemu()
 bool
 VmSetup::_CheckNvmm()
 {
-	_Progress(kStepCheckNvmm, -1, "a test VM started with the NVMM accelerator");
+	const Accelerator& accel = HostAccelerator();
+	std::string what = std::string("a test VM started with the ") + accel.name
+		+ " accelerator";
+	_Progress(kStepCheckNvmm, -1, what);
 	std::string why;
-	if (!TestNvmm(fConfig.vm.qemu, fConfig.vm.dir + "/nvmm-test.log", why))
-		return _Fail(kStepCheckNvmm, "NVMM can't run a VM: " + why);
-	_Finish(kStepCheckNvmm, "a test VM started with the NVMM accelerator");
+	if (!TestAccel(fConfig.vm.qemu, fConfig.vm.dir + "/accel-test.log", why))
+		return _Fail(kStepCheckNvmm, std::string(accel.name)
+			+ " can't run a VM: " + why);
+	_Finish(kStepCheckNvmm, what);
 	return true;
 }
 
@@ -695,7 +702,8 @@ VmSetup::_Install()
 	snprintf(cpus, sizeof(cpus), "%d", fConfig.vm.cores);
 	snprintf(memory, sizeof(memory), "%d", fConfig.vm.memoryMB);
 	std::vector<std::string> args;
-	const char* fixed[] = { "-accel", "nvmm", "-machine", "pc", "-cpu", "max",
+	const char* fixed[] = { "-accel", HostAccelerator().qemu, "-machine", "pc",
+		"-cpu", "max",
 		NULL };
 	for (int i = 0; fixed[i] != NULL; i++)
 		args.push_back(fixed[i]);
@@ -1007,6 +1015,210 @@ WriteSeedHaiku(const std::string& image,
 	error = "preparing the image needs Haiku";
 	return false;
 #endif
+}
+
+
+std::string
+QemuInstallCommand(std::vector<std::string>& argv, std::string& describe)
+{
+	argv.clear();
+#ifdef __HAIKU__
+	std::string pkgman = FindProgram("pkgman");
+	describe = "qemu from HaikuPorts";
+	if (pkgman.empty()) {
+		describe = "pkgman isn't there to install QEMU";
+		return "";
+	}
+	argv.push_back("install");
+	argv.push_back("-y");
+	argv.push_back("qemu");
+	return pkgman;
+#else
+	// The package that has qemu-system-i386, per package manager
+	struct Manager { const char* program; const char* package; const char* script; };
+	static const Manager kManagers[] = {
+		{ "apt-get", "qemu-system-x86", "apt-get update -q || true; "
+			"DEBIAN_FRONTEND=noninteractive apt-get install -y -q qemu-system-x86" },
+		{ "dnf", "qemu-system-x86-core", "dnf install -y qemu-system-x86-core" },
+		{ "pacman", "qemu-system-x86", "pacman -S --noconfirm --needed qemu-system-x86" },
+		{ "zypper", "qemu-x86", "zypper --non-interactive install qemu-x86" },
+	};
+	const Manager* manager = NULL;
+	for (size_t i = 0; i < sizeof(kManagers) / sizeof(kManagers[0]); i++) {
+		if (!FindProgram(kManagers[i].program).empty()) {
+			manager = &kManagers[i];
+			break;
+		}
+	}
+	if (manager == NULL) {
+		describe = "install QEMU (qemu-system-i386) with your package manager,"
+			" then set up again";
+		return "";
+	}
+	describe = std::string(manager->package) + " with " + manager->program;
+	// Root: already, or sudo without a password (VitruvianOS's live user),
+	// or pkexec, which asks for the password in a window
+	std::string sh = FindProgram("sh");
+	if (getuid() == 0) {
+		argv.push_back("-c");
+		argv.push_back(manager->script);
+		return sh;
+	}
+	std::string sudo = FindProgram("sudo");
+	if (!sudo.empty() && system("sudo -n true >/dev/null 2>&1") == 0) {
+		argv.push_back("-n");
+		argv.push_back(sh);
+		argv.push_back("-c");
+		argv.push_back(manager->script);
+		return sudo;
+	}
+	std::string pkexec = FindProgram("pkexec");
+	if (!pkexec.empty()) {
+		describe += ", which asks for your password";
+		argv.push_back(sh);
+		argv.push_back("-c");
+		argv.push_back(manager->script);
+		return pkexec;
+	}
+	describe = std::string("install QEMU as root: ") + manager->script;
+	return "";
+#endif
+}
+
+
+std::string
+FindBfsShell()
+{
+	const char* env = getenv("AWASE_BFS_SHELL");
+	if (env != NULL && access(env, X_OK) == 0)
+		return env;
+	std::vector<std::string> candidates;
+	char self[4096];
+	ssize_t n = readlink("/proc/self/exe", self, sizeof(self) - 1);
+	if (n > 0) {
+		self[n] = '\0';
+		std::string dir(self);
+		dir = dir.substr(0, dir.rfind('/'));
+		candidates.push_back(dir + "/bfs_shell");
+		candidates.push_back(dir + "/../lib/awase/bfs_shell");	// the AppImage
+	}
+	candidates.push_back("/usr/lib/awase/bfs_shell");			// the .deb
+	for (size_t i = 0; i < candidates.size(); i++) {
+		if (access(candidates[i].c_str(), X_OK) == 0)
+			return candidates[i];
+	}
+	return FindProgram("bfs_shell");
+}
+
+
+// Where the image's BFS partition starts: the first MBR entry of type 0xeb,
+// or the start of the image if it has no partition table.
+static int64_t
+BfsOffset(const std::string& image)
+{
+	unsigned char mbr[512];
+	FILE* file = fopen(image.c_str(), "rb");
+	if (file == NULL)
+		return -1;
+	size_t n = fread(mbr, 1, sizeof(mbr), file);
+	fclose(file);
+	if (n != sizeof(mbr) || mbr[510] != 0x55 || mbr[511] != 0xaa)
+		return 0;
+	for (int i = 0; i < 4; i++) {
+		const unsigned char* entry = mbr + 446 + 16 * i;
+		if (entry[4] != 0xeb)
+			continue;
+		uint32_t lba = entry[8] | (entry[9] << 8) | (entry[10] << 16)
+			| ((uint32_t)entry[11] << 24);
+		return (int64_t)lba * 512;
+	}
+	return 0;
+}
+
+
+bool
+WriteSeedBfsShell(const std::string& image,
+	const std::vector<std::pair<std::string, std::string> >& files,
+	const std::string& logPath, std::string& error)
+{
+	std::string bfs = FindBfsShell();
+	if (bfs.empty()) {
+		error = "bfs_shell isn't there (it comes with Awase)";
+		return false;
+	}
+	int64_t offset = BfsOffset(image);
+	if (offset < 0) {
+		error = "can't read the image";
+		return false;
+	}
+	// The files to copy, and bfs_shell's commands to copy them
+	std::string stage = image + ".files";
+	MakeDirs(stage);
+	std::string commands, listing;
+	for (size_t i = 0; i < files.size(); i++) {
+		char name[32];
+		snprintf(name, sizeof(name), "/%zu", i);
+		if (!WriteFile(stage + name, files[i].second)) {
+			error = "can't stage " + files[i].first;
+			return false;
+		}
+		std::string dest = "/myfs/" + files[i].first;
+		commands += "mkdir -p " + dest.substr(0, dest.rfind('/')) + "\n";
+		commands += "cp :" + stage + name + " " + dest + "\n";
+		listing += "ls " + dest + "\n";
+	}
+	WriteFile(stage + "/commands", commands + "sync\nexit\n");
+	WriteFile(stage + "/check", listing + "exit\n");
+
+	std::string dir = bfs.substr(0, bfs.rfind('/'));
+	char start[32];
+	snprintf(start, sizeof(start), "%lld", (long long)offset);
+	std::vector<std::pair<std::string, std::string> > environment;
+	environment.push_back(std::make_pair(std::string("LD_LIBRARY_PATH"), dir));
+	for (int pass = 0; pass < 2; pass++) {
+		std::vector<std::string> args;
+		args.push_back("-c");
+		args.push_back("exec \"$1\" --start-offset \"$2\" \"$3\" < \"$4\"");
+		args.push_back("awase-bfs");
+		args.push_back(bfs);
+		args.push_back(start);
+		args.push_back(image);
+		args.push_back(stage + (pass == 0 ? "/commands" : "/check"));
+		std::string log = logPath + (pass == 0 ? "" : ".check");
+		Builder run;
+		if (!run.Start(FindProgram("sh"), args, environment, log)) {
+			error = "bfs_shell didn't start";
+			return false;
+		}
+		while (run.Poll())
+			Nap(0.1);
+		std::string text;
+		ReadFile(log, text);
+		if (run.ExitCode() != 0 || text.find("Error") != std::string::npos
+				|| text.find("rror:") != std::string::npos) {
+			error = "bfs_shell couldn't write the image";
+			return false;
+		}
+		if (pass == 1) {
+			for (size_t i = 0; i < files.size(); i++) {
+				std::string leaf = files[i].first.substr(
+					files[i].first.rfind('/') + 1);
+				if (text.find(leaf) == std::string::npos) {
+					error = files[i].first + " isn't in the image";
+					return false;
+				}
+			}
+		}
+	}
+	for (size_t i = 0; i < files.size(); i++) {
+		char name[32];
+		snprintf(name, sizeof(name), "/%zu", i);
+		remove((stage + name).c_str());
+	}
+	remove((stage + "/commands").c_str());
+	remove((stage + "/check").c_str());
+	rmdir(stage.c_str());
+	return true;
 }
 
 

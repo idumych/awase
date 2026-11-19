@@ -12,3 +12,5 @@
 /.cosmoe/
 /.haiku-headers/
 /.vos-sdk/
+/bfs/
+/.bfs-shell/

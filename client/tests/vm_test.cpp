@@ -77,12 +77,13 @@ RunSetup(VmSetupConfig config)
 static void
 HostChecks(const std::string& work)
 {
-	std::string device = work + "/nvmm-device";
+	std::string device = work + "/accel-device";
 	std::ofstream(device.c_str()) << "";
 	std::vector<std::string> present(1, device);
 	HostCheck host = CheckHost(work, present);
-	CHECK(host.nvmm);
-	CHECK(host.nvmmDevice == device);
+	CHECK(host.accel);
+	CHECK(!host.accelDenied);
+	CHECK(host.accelDevice == device);
 	CHECK(host.memoryTotal > 0);
 	CHECK(host.diskFree > 0);
 	CHECK(host.qemu.find("qemu-system-i386") != std::string::npos);
@@ -93,27 +94,82 @@ HostChecks(const std::string& work)
 
 	std::vector<std::string> absent(1, work + "/no-such-device");
 	host = CheckHost(work + "/not/made/yet", absent);
-	CHECK(!host.nvmm);
+	CHECK(!host.accel);
 	CHECK(host.diskFree > 0);	// measured on the nearest folder that exists
-	CHECK(host.Refusal().find("NVMM") != std::string::npos
-		|| host.Refusal().find("64-bit") != std::string::npos);
-	printf("host checks: %s, %s, NVMM %s\n", host.cpu.c_str(),
+	CHECK(!host.Refusal().empty());
+
+	// There but not ours to use (as /dev/kvm without the kvm group)
+	std::string locked = work + "/accel-locked";
+	std::ofstream(locked.c_str()) << "";
+	chmod(locked.c_str(), 0);
+	if (getuid() != 0) {
+		host = CheckHost(work, std::vector<std::string>(1, locked));
+		CHECK(!host.accel);
+		CHECK(host.accelDenied);
+		CHECK(host.Refusal().find("group") != std::string::npos);
+	}
+	host = CheckHost(work);
+	printf("host checks: %s, %s, %s: %s\n", host.cpu.c_str(),
 		host.virt.empty() ? "no VT-x/AMD-V" : host.virt.c_str(),
-		host.nvmm ? "yes" : "no");
+		HostAccelerator().name, host.accel ? "usable" : host.accelDenied
+			? "not ours to use" : "no");
 }
 
 
 static void
-NvmmTest(const std::string& work)
+AccelTest(const std::string& work)
 {
 	std::string why;
 	std::string qemu = FindProgram("qemu-system-i386");
-	CHECK(TestNvmm(qemu, work + "/nvmm-ok.log", why));
+	CHECK(TestAccel(qemu, work + "/accel-ok.log", why));
 
-	setenv("FAKE_QEMU_NVMM", "fail", 1);
-	CHECK(!TestNvmm(qemu, work + "/nvmm-fail.log", why));
-	CHECK(why.find("NVMM") != std::string::npos);
-	unsetenv("FAKE_QEMU_NVMM");
+	setenv("FAKE_QEMU_ACCEL", "fail", 1);
+	CHECK(!TestAccel(qemu, work + "/accel-fail.log", why));
+	CHECK(why.find(HostAccelerator().name) != std::string::npos);
+	unsetenv("FAKE_QEMU_ACCEL");
+
+	std::vector<std::string> argv;
+	std::string describe;
+	std::string program = QemuInstallCommand(argv, describe);
+	printf("QEMU would be installed: %s\n", program.empty()
+		? ("no way: " + describe).c_str() : describe.c_str());
+}
+
+
+// bfs_shell writing a seed into a real Renku image (AWASE_TEST_IMAGE, a Renku
+// x86_gcc2h anyboot image, whose BFS partition starts at 6 MB; and bfs_shell
+// found as Awase finds it); skipped without them, as in CI.
+static void
+BfsShellSeed(const std::string& work)
+{
+	const char* image = getenv("AWASE_TEST_IMAGE");
+	if (image == NULL || FindBfsShell().empty()) {
+		printf("bfs_shell seed: skipped (no AWASE_TEST_IMAGE or bfs_shell)\n");
+		return;
+	}
+	std::string copy = work + "/seed-test.img";
+	CHECK(system(("cp '" + std::string(image) + "' '" + copy + "'").c_str()) == 0);
+	std::vector<std::pair<std::string, std::string> > files;
+	files.push_back(std::make_pair(std::string(
+		"system/settings/launch/awase-vm-setup"), std::string(GuestInstallLaunchJob())));
+	files.push_back(std::make_pair(std::string("system/settings/awase/setup.sh"),
+		std::string(GuestInstallScript())));
+	files.push_back(std::make_pair(std::string(
+		"system/settings/awase/packages/haiku_devel-test.hpkg"), std::string(200000, 'x')));
+	std::string error;
+	CHECK(WriteSeedBfsShell(copy, files, work + "/seed-test.log", error));
+	if (!error.empty())
+		fprintf(stderr, "bfs_shell seed: %s\n", error.c_str());
+	// Read one back
+	std::string read = "cat /myfs/system/settings/launch/awase-vm-setup\nexit\n";
+	std::ofstream((work + "/read-back").c_str()) << read;
+	std::string bfs = FindBfsShell();
+	std::string dir = bfs.substr(0, bfs.rfind('/'));
+	std::string cmd = "LD_LIBRARY_PATH='" + dir + "' '" + bfs + "' --start-offset 6291456 '"
+		+ copy + "' < '" + work + "/read-back' > '" + work + "/read-back.out' 2>&1";
+	CHECK(system(cmd.c_str()) == 0);
+	CHECK(Read(work + "/read-back.out").find("awase-vm-setup {") != std::string::npos);
+	printf("bfs_shell seed: written and read back\n");
 }
 
 
@@ -268,7 +324,8 @@ main(int argc, char** argv)
 	}
 	std::string work = argv[1], server = argv[2];
 	HostChecks(work);
-	NvmmTest(work);
+	AccelTest(work);
+	BfsShellSeed(work);
 	Scripts(work);
 	FullSetup(work, server);
 	DamagedImage(work, server);

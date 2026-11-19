@@ -76,6 +76,12 @@ jobs:
           path: /opt/vos-sdk
           key: ${{ steps.sdk.outputs.cache-primary-key }}
 
+      # bfs_shell, which writes the x86 VM's install job into Renku's image
+      # (amd64; the arm64 .deb is the lite build, without the VM)
+      - name: Build bfs_shell
+        if: matrix.arch == 'amd64'
+        run: sh tools/build-bfs-shell.sh bfs .bfs-shell
+
       - name: Build .deb
         run: |
           . /opt/vos-sdk/sdk/env.sh

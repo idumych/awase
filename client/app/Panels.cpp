@@ -594,7 +594,8 @@ NowView::_PaintTwo(BView* canvas, BRect bounds)
 		BPoint(bounds.right - kPad, bounds.top + 40 + half));
 	_PaintMachine(canvas, BRect(bounds.left, bounds.top + 40 + half,
 		bounds.right, bounds.bottom), fModel.vmSnapshot, "Your VM \xc2\xb7 x86",
-		kGold, fModel.vmFrozen ? "NVMM \xc2\xb7 paused" : "NVMM");
+		kGold, (std::string(HostAccelerator().name)
+			+ (fModel.vmFrozen ? " \xc2\xb7 paused" : "")).c_str());
 }
 
 

@@ -85,30 +85,38 @@ The settings, including the client's secret, are kept in
 
 ## Building for x86 too, in a virtual machine
 
-On a 64-bit x86 machine with NVMM (Haiku's hardware virtualization), the
-Renku app can also build the pool's x86 jobs, in a Renku x86_gcc2h VM run
-by QEMU. Choose Pool › Virtual machines… or the "Build x86 too" button. It
+On a 64-bit x86 machine with hardware virtualization (NVMM on Renku and
+Haiku, KVM on Linux and VitruvianOS), Awase can also build the pool's x86
+jobs, in a Renku x86_gcc2h VM run by QEMU. Choose Pool › Virtual machines… or the "Build x86 too" button. It
 checks the machine first: 64-bit x86, NVMM, memory, free disk (the VM
 takes 20 GB; BFS has no sparse files) and QEMU. Without NVMM it says why
-(usually VT-x or AMD-V switched off in the firmware, or a VM without
-nested virtualization) and sets nothing up: emulated, the VM would be far
-too slow to build for the pool. NVMM runs only x86 code, so x86 is the
-only architecture offered; arm64 and riscv64 aren't.
+(usually VT-x or AMD-V switched off in the firmware, a VM without nested
+virtualization, or on Linux the kvm module not loaded or you not in the
+kvm group) and sets nothing up: emulated, the VM would be far too slow to
+build for the pool. On an x86 machine either runs only x86 code, so x86 is
+the only architecture offered; the arm64 builds are lite ones, without the
+VM.
 
 The VM needs its own build client on the coordinator, made for the x86
 platform: its ID and secret go in the window. Setting up then takes six
 steps, each with its progress:
 
-1. **Install QEMU** from HaikuPorts with pkgman, if it isn't there.
-2. **Check NVMM**: a VM is started for a moment with `-accel nvmm`.
+1. **Install QEMU**, if it isn't there: from HaikuPorts with pkgman on
+   Haiku; on Linux with apt, dnf, pacman or zypper (`qemu-system-x86`),
+   as root through `sudo` if it needs no password, otherwise `pkexec`,
+   which asks for yours.
+2. **Check the accelerator**: a VM is started for a moment with
+   `-accel nvmm` or `-accel kvm`.
 3. **Download** tonight's Renku x86_gcc2h image and the nightly's
    x86_gcc2 repository (for `haiku_devel` at exactly the image's version,
    which HaikuPorter needs and Renku's online repository may not have
    yet), from Renku's GitHub nightly.
 4. **Check the image**: both SHA-256s against Renku's.
 5. **Install Renku on a 20 GB disk**, unattended, as Haiku's Installer
-   does: Awase copies the image, mounts the copy and adds a one-time
-   launch job. Booted, it formats the VM's disk, copies the system
+   does: Awase copies the image and adds a one-time launch job to the copy
+   (on Haiku by mounting it; on Linux, which can't write BFS, with Haiku's
+   `bfs_shell`, which comes with the AppImage and the .deb, built by
+   `tools/build-bfs-shell.sh`). Booted, it formats the VM's disk, copies the system
    packages and settings (and `haiku_devel`), adds Awase's own SSH key,
    makes the disk bootable and powers off. The installed VM then boots,
    and Awase installs HaikuPorter in it over SSH.
@@ -123,7 +131,8 @@ powered off on quit, its build given back. The window shows both machines:
 "Now building" gets a ring each, the pool a "your VM" marker with its own
 comet, and the activity both machines' events.
 
-The VM and its files are in `~/config/non-packaged/data/Awase/vm`.
+The VM and its files are in `~/config/non-packaged/data/Awase/vm` on
+Renku and VitruvianOS (on Linux, Cosmoe's equivalent folder).
 
 ## awase-tui: the terminal client for Linux servers
 

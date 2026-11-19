@@ -6,9 +6,9 @@
 #define AWASE_VM_RUNNER_H
 
 // The x86 build VM: Renku x86_gcc2h on its own 20 GB disk (disk.img in the
-// VM folder), run by QEMU with the NVMM accelerator. Awase reaches it over
-// SSH on a local port, with a key only it has, and pauses it with QEMU's
-// monitor when building must pause.
+// VM folder), run by QEMU with the platform's accelerator (NVMM, KVM). Awase
+// reaches it over SSH on a local port, with a key only it has, and pauses it
+// with QEMU's monitor when building must pause.
 
 #include <functional>
 #include <string>

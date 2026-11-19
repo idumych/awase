@@ -6,9 +6,9 @@
 #define AWASE_VM_HOST_H
 
 // What this machine offers for an x86 build VM. Awase sets one up only with
-// NVMM, Haiku's hardware virtualization (from NetBSD and DragonFly BSD), so
-// the VM runs on the CPU itself; NVMM runs only x86 code, so x86 (Renku's
-// x86_gcc2h) is the only platform a VM is offered for.
+// hardware virtualization, so the VM runs on the CPU itself: NVMM on Haiku
+// (from NetBSD and DragonFly BSD), KVM on Linux. On an x86 machine they run
+// only x86 code, so x86 (Renku's x86_gcc2h) is the only platform offered.
 
 #include <stdint.h>
 
@@ -19,12 +19,23 @@
 namespace awase {
 
 
+// The platform's accelerator, as QEMU and the window name it.
+struct Accelerator {
+	const char*			name;			// "NVMM", "KVM"
+	const char*			qemu;			// -accel's argument
+	const char*			what;			// "Haiku's hardware virtualization"
+};
+
+const Accelerator&	HostAccelerator();
+
+
 struct HostCheck {
 	bool				x86_64;
 	std::string			cpu;			// the processor's brand string
 	std::string			virt;			// "VT-x", "AMD-V", or ""
-	bool				nvmm;			// the NVMM device is there
-	std::string			nvmmDevice;
+	bool				accel;			// the accelerator's device works for us
+	bool				accelDenied;	// it's there, but we may not use it
+	std::string			accelDevice;
 	int64_t				memoryTotal;	// bytes
 	int64_t				memoryFree;
 	int64_t				diskFree;		// on the volume the VM lives on
@@ -35,14 +46,15 @@ struct HostCheck {
 };
 
 
-// devices: where to look for NVMM (default /dev/misc/nvmm, /dev/nvmm).
+// devices: where to look for the accelerator (default /dev/misc/nvmm and
+// /dev/nvmm on Haiku, /dev/kvm on Linux).
 HostCheck		CheckHost(const std::string& vmDir,
 					const std::vector<std::string>& devices
 						= std::vector<std::string>());
 
-// Starts QEMU with the NVMM accelerator for a moment, which fails at once
-// when NVMM can't run a VM. True if it ran; why not otherwise.
-bool			TestNvmm(const std::string& qemu, const std::string& logPath,
+// Starts QEMU with the accelerator for a moment, which fails at once when it
+// can't run a VM. True if it ran; why not otherwise.
+bool			TestAccel(const std::string& qemu, const std::string& logPath,
 					std::string& why);
 
 // A program's full path from PATH (plus the Haiku system bin folders), or "".

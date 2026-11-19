@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # fake_qemu.py: stands in for qemu-system-i386 in vm_test.
-#   FAKE_QEMU_NVMM=fail  -> exits at once as QEMU does when NVMM can't run a VM
+#   FAKE_QEMU_ACCEL=fail -> exits at once as QEMU does when the accelerator
+#                           (-accel nvmm or kvm) can't run a VM
 #   -S (the NVMM test)   -> stays up until killed
 #   with a second disk    -> the one-time install: reports progress on the
 #                            serial file as the guest does, then powers off
@@ -11,8 +12,9 @@
 import os, socket, sys, time
 
 args = sys.argv[1:]
-if os.environ.get('FAKE_QEMU_NVMM') == 'fail':
-    sys.stderr.write('qemu-system-i386: NVMM: Unable to init: Operation not supported\n')
+if os.environ.get('FAKE_QEMU_ACCEL') == 'fail':
+    accel = args[args.index('-accel') + 1].upper() if '-accel' in args else '?'
+    sys.stderr.write('qemu-system-i386: %s: Unable to init: Operation not supported\n' % accel)
     sys.exit(1)
 if '-S' in args:
     time.sleep(60)

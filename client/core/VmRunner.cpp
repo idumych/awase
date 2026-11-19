@@ -109,7 +109,8 @@ VmRunner::Start(const VmConfig& config, std::string& error)
 	snprintf(net, sizeof(net), "user,id=n0,hostfwd=tcp:127.0.0.1:%d-:22",
 		config.sshPort);
 	std::vector<std::string> args;
-	const char* fixed[] = { "-accel", "nvmm", "-machine", "pc", "-cpu", "max",
+	const char* fixed[] = { "-accel", HostAccelerator().qemu, "-machine", "pc",
+		"-cpu", "max",
 		NULL };
 	for (int i = 0; fixed[i] != NULL; i++)
 		args.push_back(fixed[i]);

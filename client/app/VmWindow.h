@@ -7,7 +7,8 @@
 
 // The Virtual machines window: what this machine offers, setting up the x86
 // build VM with progress, and turning building in it on or off. Awase sets
-// up a VM only with NVMM, and only for x86, the one platform NVMM runs.
+// up a VM only with hardware virtualization (NVMM on Haiku, KVM on Linux),
+// and only for x86, the one platform it runs on an x86 machine.
 
 #include <Window.h>
 
@@ -97,6 +98,7 @@ private:
 			std::vector<Button>	fButtons;
 			int					fHover;
 			BRect				fToggle;
+			std::string			fQemuHow;		// how QEMU would be installed
 			bigtime_t			fDoneAt[awase::kStepCount];	// for the sparks
 };
 

@@ -6,12 +6,14 @@
 #define AWASE_VM_SETUP_H
 
 // Sets up the x86 build VM, on a thread, in six steps the window shows with
-// progress: install QEMU, check NVMM, download Renku x86_gcc2h, check the
+// progress: install QEMU, check the accelerator (NVMM on Haiku, KVM on
+// Linux), download Renku x86_gcc2h, check the
 // image, install Renku on a 20 GB disk (with HaikuPorter and Awase's SSH
 // key), and a test build.
 //
 // The install works as Haiku's Installer does, unattended: Awase copies the
-// image, mounts the copy and adds a one-time launch job to it. Booted, the
+// image and adds a one-time launch job to the copy (mounting it on Haiku,
+// with Haiku's bfs_shell tool on Linux, which can't write BFS). Booted, the
 // job formats the VM's second disk, copies the system packages to it, makes
 // it bootable, adds the SSH key and powers off. From then on the VM boots
 // from that disk and Awase drives it over SSH.
@@ -153,6 +155,17 @@ bool			WriteSeedHaiku(const std::string& image,
 					const std::vector<std::pair<std::string, std::string> >&
 						files,
 					const std::string& logPath, std::string& error);
+// The same with bfs_shell, for Linux (found next to Awase, in
+// ../lib/awase, /usr/lib/awase, on PATH, or at $AWASE_BFS_SHELL).
+bool			WriteSeedBfsShell(const std::string& image,
+					const std::vector<std::pair<std::string, std::string> >&
+						files,
+					const std::string& logPath, std::string& error);
+std::string		FindBfsShell();
+// How this system installs QEMU ("" when it can't): the command, and what
+// to call it in the window ("qemu-system-x86 with apt").
+std::string		QemuInstallCommand(std::vector<std::string>& argv,
+					std::string& describe);
 
 
 }	// namespace awase
