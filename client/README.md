@@ -41,6 +41,10 @@ The x86 build VM ready, after a test build of zlib (Renku OS x86_64 with NVMM, i
 
 The AppImage on Linux (aarch64, Wayland), as a seal lands on readline.
 
+![Mini mode on Renku, and the Deskbar replicant's ring filling as a build goes](docs/screenshots/renku-mini-deskbar.png)
+
+Mini mode on Renku OS (x86_64), and the Deskbar replicant (enlarged) as a build goes.
+
 ## Building for a coordinator
 
 Choose Pool › Coordinator… and enter the coordinator's address, this
