@@ -17,13 +17,21 @@ those aren't released yet.
 
 ## Screenshots
 
-![Awase on Haiku R1/beta6: the demo pool with seals, glowing threads and builds in flight](docs/screenshots/haiku-demo-pool.png)
+![Awase on Renku OS: the demo pool with seals, glowing threads and builds in flight](docs/screenshots/renku-demo-pool.png)
 
-The demo pool on Haiku R1/beta6.
+The demo pool on Renku OS (x86_64).
 
-![The Virtual machines window: the x86 VM set up in six steps, ready](docs/screenshots/haiku-vm-ready.png)
+![The Virtual machines window on Renku: the machine's checks and the x86 architecture, before setup](docs/screenshots/renku-vm-setup.png)
 
-The x86 build VM, set up and ready (Haiku R1/beta6 with NVMM, in QEMU).
+Pool › Virtual machines… checks the machine first: a 64-bit x86 processor, NVMM, memory, disk space and QEMU, which it installs if it's missing.
+
+![Setting up the x86 VM: QEMU installed, NVMM checked, Renku's image downloading](docs/screenshots/renku-vm-download.png)
+
+Setup in progress: QEMU installed from Renku's ports, NVMM tested, Renku's x86 image downloading.
+
+![The x86 VM is ready: all six steps done, zlib built as the test](docs/screenshots/renku-vm-ready.png)
+
+The x86 build VM ready, after a test build of zlib (Renku OS x86_64 with NVMM, in QEMU).
 
 ![Awase on Linux under Wayland: a seal landing on readline](docs/screenshots/linux-demo-pool.png)
 
