@@ -139,6 +139,8 @@ hpkg:
 	sh packaging/build-hpkg.sh
 
 HOST_CORE := core/Pool.cpp core/DemoPool.cpp
+# socket() is in libnetwork on Haiku, in libc elsewhere
+HOST_NETWORK := $(if $(filter Haiku,$(UNAME)),-lnetwork)
 LIVE_CORE := $(HOST_CORE) core/Json.cpp core/Sha256.cpp core/Portal.cpp \
 	core/Builder.cpp core/LivePool.cpp core/Thermal.cpp
 
@@ -159,7 +161,7 @@ objects/live_test: tests/live_test.cpp $(LIVE_CORE) $(wildcard core/*.h)
 objects/vm_test: tests/vm_test.cpp $(LIVE_CORE) $(VM_CORE) $(wildcard core/*.h)
 	@mkdir -p objects
 	c++ -std=c++17 -O1 -Wall -Wextra -Wno-unused-parameter -pthread -Icore \
-		-o $@ tests/vm_test.cpp $(LIVE_CORE) $(VM_CORE) -lcurl
+		-o $@ tests/vm_test.cpp $(LIVE_CORE) $(VM_CORE) -lcurl $(HOST_NETWORK)
 
 # The terminal client for Linux servers: awase-tui
 tui: awase-tui
