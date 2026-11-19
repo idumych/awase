@@ -309,9 +309,16 @@ LivePool::_Holdup(LiveState& state)
 		return "Paused";
 	if (fState.tooHot) {
 		char text[96];
-		snprintf(text, sizeof(text), "Too hot: the CPU is at %d \xc2\xb0""C, "
-			"over your %d \xc2\xb0""C limit", fState.temperature,
-			fLimits.maxTemperature);
+		if (fState.temperature > fLimits.maxTemperature)
+			snprintf(text, sizeof(text), "Too hot: the CPU is at %d \xc2\xb0""C, "
+				"over your %d \xc2\xb0""C limit", fState.temperature,
+				fLimits.maxTemperature);
+		else {
+			// Builds wait until the CPU is kCoolBy under the limit
+			snprintf(text, sizeof(text), "Cooling down: the CPU is at %d "
+				"\xc2\xb0""C, carrying on at %d \xc2\xb0""C", fState.temperature,
+				fLimits.maxTemperature - kCoolBy);
+		}
 		return text;
 	}
 	if (fLimits.idleOnly && !fIdle) {

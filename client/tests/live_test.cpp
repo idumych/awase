@@ -337,7 +337,11 @@ HeatPausesTheBuild()
 	// A little cooler, but not 5 degrees under the limit: still paused.
 	sTemperature = 82;
 	usleep(600000);
-	CHECK(pool.Snapshot().tooHot);
+	snapshot = pool.Snapshot();
+	CHECK(snapshot.tooHot);
+	// and it says so, rather than that 82 is over the 85 limit
+	CHECK(snapshot.message.find("Cooling down: the CPU is at 82") != std::string::npos);
+	CHECK(snapshot.message.find("carrying on at 80") != std::string::npos);
 
 	// Cool enough: it carries on and finishes.
 	sTemperature = 79;
