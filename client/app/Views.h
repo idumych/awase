@@ -61,7 +61,13 @@ enum {
 	kMsgTogglePause = 'paus',
 	kMsgLimits = 'limt',		// "cores", "temperature" (int32), "idle" (bool)
 	kMsgWebsite = 'webs',
+	kMsgToggleMini = 'mini',
+	kMsgToggleDeskbar = 'dbtg',
 };
+
+
+// What the machine is doing, in a few words, and the colour of its dot.
+const char*	StatusText(const Model& model, rgb_color& dot);
 
 
 // The top bar: the seal and name, what the machine is doing, Pause.
@@ -78,8 +84,6 @@ protected:
 
 private:
 			BRect				_ButtonFrame() const;
-			const char*			_Status(rgb_color& dot,
-									std::string& storage) const;
 
 			const Model&		fModel;
 			const awase::DemoPool& fPool;
@@ -170,6 +174,59 @@ private:
 			void				_PaintLive(BView* canvas, BRect bounds);
 			const Model&		fModel;
 			const awase::DemoPool& fPool;
+};
+
+
+// The column right of the pool: what's building now, your figures, and the
+// pool's activity. On a short window the activity goes first, then the
+// figures, so what's building now always shows.
+class PanelColumn : public BView {
+public:
+								PanelColumn(NowView* now, StatsView* stats,
+									ActivityView* activity);
+
+	virtual	void				AllAttached();
+	virtual	void				FrameResized(float width, float height);
+	virtual	BSize				MinSize();
+	virtual	BSize				MaxSize();
+	virtual	BSize				PreferredSize();
+
+protected:
+	virtual	void				DoLayout();
+
+private:
+			void				_Arrange();
+			void				_Place(int index, float top, float height);
+
+			BView*				fViews[3];
+			bool				fShown[3];
+};
+
+
+// Mini mode: the window shrunk to what's building, a few figures, Full
+// view and Pause, as in the Pocket mockup.
+class PocketView : public ink::InkView {
+public:
+								PocketView(const Model& model);
+
+	virtual	void				MouseDown(BPoint where);
+	virtual	void				MouseMoved(BPoint where, uint32 transit,
+									const BMessage* dragMessage);
+
+protected:
+	virtual	void				Paint(BView* canvas, BRect bounds);
+
+private:
+			enum Button { kNoButton, kFullView, kPause };
+
+			BRect				_ButtonFrame(Button button) const;
+			void				_PaintRing(BView* canvas, BPoint center);
+			void				_PaintButton(BView* canvas, Button button,
+									const char* label, bool filled);
+
+			const Model&		fModel;
+			const awase::DemoPool& fPool;
+			Button				fHover;
 };
 
 

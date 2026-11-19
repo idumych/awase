@@ -23,6 +23,14 @@ using namespace ink;
 
 static const float kPad = 26;
 
+// The right column's panels. The figures can lose some of their chart, and
+// the activity can shrink to one event, before either is left out.
+static const float kColumnWidth = 340;
+static const float kNowHeight = 204;
+static const float kStatsHeight = 186;
+static const float kStatsMinHeight = 150;
+static const float kActivityMinHeight = 80;
+
 
 static void
 Divider(BView* canvas, BRect bounds, bool left, bool top)
@@ -44,6 +52,152 @@ DrawTruncated(BView* canvas, const BFont& font, const char* text, BPoint where,
 	BString string(text);
 	font.TruncateString(&string, B_TRUNCATE_END, width);
 	canvas->DrawString(string.String(), where);
+}
+
+
+// The steps of a build as bars, each named under it. When the names don't
+// fit, only the current step's is.
+static void
+DrawSteps(BView* canvas, const char* const steps[5], int current, float left,
+	float top, float width, rgb_color currentColor, bool glow)
+{
+	float stepWidth = width / 5;
+	BFont font = Body(11);
+	bool named = true;
+	for (int i = 0; i < 5; i++) {
+		const char* step = i == 1 ? "Config" : steps[i];
+		if (font.StringWidth(step) > stepWidth - 6)
+			named = false;
+	}
+	canvas->SetFont(&font);
+	for (int i = 0; i < 5; i++) {
+		BRect bar(left + i * stepWidth, top, left + (i + 1) * stepWidth - 4,
+			top + 4);
+		canvas->SetHighColor(i < current ? kFire
+			: i == current ? currentColor : Alpha(kWashi, 30));
+		canvas->FillRoundRect(bar, 2, 2);
+		if (glow && i == current) {
+			float pulse = 0.5f + 0.5f * sinf((float)system_time() / 160000.0f);
+			canvas->SetHighColor(Alpha(currentColor, (uint8)(60 * pulse)));
+			canvas->FillRoundRect(bar.InsetByCopy(-2, -3), 3, 3);
+		}
+		const char* step = steps[i];
+		if (i == 1 && font.StringWidth(step) > stepWidth - 6)
+			step = "Config";
+		if (named) {
+			canvas->SetHighColor(i <= current ? kWashi2 : kMuted);
+			canvas->DrawString(step, BPoint(bar.left, top + 22));
+		} else if (i == current) {
+			step = steps[i];
+			float x = std::min(bar.left, left + width - font.StringWidth(step));
+			canvas->SetHighColor(kWashi2);
+			canvas->DrawString(step, BPoint(std::max(left, x), top + 22));
+		}
+	}
+}
+
+
+// #pragma mark - PanelColumn
+
+
+PanelColumn::PanelColumn(NowView* now, StatsView* stats,
+	ActivityView* activity)
+	:
+	BView("column", B_FRAME_EVENTS)
+{
+	fViews[0] = now;
+	fViews[1] = stats;
+	fViews[2] = activity;
+	for (int i = 0; i < 3; i++) {
+		fShown[i] = true;
+		AddChild(fViews[i]);
+	}
+	SetViewColor(kNight);
+}
+
+
+void
+PanelColumn::AllAttached()
+{
+	BView::AllAttached();
+	_Arrange();
+}
+
+
+void
+PanelColumn::FrameResized(float width, float height)
+{
+	BView::FrameResized(width, height);
+	_Arrange();
+}
+
+
+BSize
+PanelColumn::MinSize()
+{
+	return BSize(kColumnWidth, kNowHeight);
+}
+
+
+BSize
+PanelColumn::MaxSize()
+{
+	return BSize(B_SIZE_UNLIMITED, B_SIZE_UNLIMITED);
+}
+
+
+BSize
+PanelColumn::PreferredSize()
+{
+	return BSize(kColumnWidth + 60, kNowHeight + kStatsHeight + 112);
+}
+
+
+void
+PanelColumn::DoLayout()
+{
+	_Arrange();
+}
+
+
+void
+PanelColumn::_Arrange()
+{
+	BRect bounds = Bounds();
+	float rest = bounds.Height() + 1 - kNowHeight;
+	if (rest >= kStatsHeight + kActivityMinHeight) {
+		_Place(0, 0, kNowHeight);
+		_Place(1, kNowHeight, kStatsHeight);
+		_Place(2, kNowHeight + kStatsHeight, rest - kStatsHeight);
+	} else if (rest >= kStatsMinHeight) {
+		_Place(0, 0, kNowHeight);
+		_Place(1, kNowHeight, rest);
+		_Place(2, 0, -1);
+	} else {
+		_Place(0, 0, bounds.Height() + 1);
+		_Place(1, 0, -1);
+		_Place(2, 0, -1);
+	}
+}
+
+
+// Puts a panel at top with this height, or hides it for a negative height.
+void
+PanelColumn::_Place(int index, float top, float height)
+{
+	BView* view = fViews[index];
+	bool show = height > 0;
+	if (show) {
+		view->MoveTo(0, top);
+		view->ResizeTo(Bounds().Width(), height - 1);
+	}
+	if (show != fShown[index]) {
+		if (show)
+			view->Show();
+		else
+			view->Hide();
+		fShown[index] = show;
+	}
 }
 
 
@@ -92,13 +246,14 @@ HeaderView::MouseMoved(BPoint where, uint32 transit, const BMessage* drag)
 
 
 const char*
-HeaderView::_Status(rgb_color& dot, std::string& storage) const
+StatusText(const Model& model, rgb_color& dot)
 {
-	if (fModel.TwoMachines()) {
-		bool here = fModel.snapshot.state == kLiveBuilding
-			|| fModel.snapshot.state == kLiveUploading;
-		bool vm = fModel.vmSnapshot.state == kLiveBuilding
-			|| fModel.vmSnapshot.state == kLiveUploading;
+	const DemoPool& demo = *model.demo;
+	if (model.TwoMachines()) {
+		bool here = model.snapshot.state == kLiveBuilding
+			|| model.snapshot.state == kLiveUploading;
+		bool vm = model.vmSnapshot.state == kLiveBuilding
+			|| model.vmSnapshot.state == kLiveUploading;
 		if (here && vm) {
 			dot = kFire;
 			return "Building on 2 machines";
@@ -108,8 +263,8 @@ HeaderView::_Status(rgb_color& dot, std::string& storage) const
 			return "Building in the x86 VM";
 		}
 	}
-	if (fModel.live) {
-		const LiveSnapshot& live = fModel.snapshot;
+	if (model.live) {
+		const LiveSnapshot& live = model.snapshot;
 		switch (live.state) {
 			case kLiveBuilding:
 				dot = kFire;
@@ -140,12 +295,12 @@ HeaderView::_Status(rgb_color& dot, std::string& storage) const
 		return "Not connected";
 	}
 
-	const Pool& pool = fPool.GetPool();
-	if (fPool.GetLimits().paused) {
+	const Pool& pool = demo.GetPool();
+	if (demo.GetLimits().paused) {
 		dot = kGold;
 		return "Paused";
 	}
-	if (fPool.WaitingForIdle()) {
+	if (demo.WaitingForIdle()) {
 		dot = kMuted;
 		return "Waiting for the computer to be idle";
 	}
@@ -159,7 +314,6 @@ HeaderView::_Status(rgb_color& dot, std::string& storage) const
 		return "Waiting for a second build";
 	}
 	dot = kWashi2;
-	(void)storage;
 	return "Looking for work";
 }
 
@@ -190,6 +344,7 @@ HeaderView::Paint(BView* canvas, BRect bounds)
 	canvas->SetFont(&kana);
 	canvas->SetHighColor(kFire2);
 	canvas->DrawString("合わせ", BPoint(x, bounds.top + 41));
+	float nameRight = x + kana.StringWidth("合わせ");
 	std::string subtitle = "VOLUNTEER BUILDS FOR RENKU PORTS";
 	if (fModel.live) {
 		std::string host = fModel.snapshot.server;
@@ -209,15 +364,16 @@ HeaderView::Paint(BView* canvas, BRect bounds)
 
 	// What this machine is doing
 	rgb_color dot;
-	std::string storage;
-	const char* status = _Status(dot, storage);
+	const char* status = StatusText(fModel, dot);
 
+	// The pill ends left of Pause and starts no further left than the name
 	BFont body = Body(13, true);
+	BRect button = _ButtonFrame();
 	BString shown(status);
-	body.TruncateString(&shown, B_TRUNCATE_END, bounds.Width() * 0.42f);
+	body.TruncateString(&shown, B_TRUNCATE_END,
+		std::max(60.0f, button.left - 16 - 44 - (nameRight + 24)));
 	status = shown.String();
 	float width = body.StringWidth(status) + 44;
-	BRect button = _ButtonFrame();
 	BRect pill(button.left - 16 - width, button.top + 3, button.left - 16,
 		button.bottom - 3);
 	canvas->SetHighColor(Alpha(dot, 40));
@@ -281,8 +437,6 @@ NowView::NowView(const Model& model)
 	fModel(model),
 	fPool(*model.demo)
 {
-	SetExplicitMinSize(BSize(360, 204));
-	SetExplicitMaxSize(BSize(B_SIZE_UNLIMITED, 204));
 }
 
 
@@ -365,31 +519,10 @@ NowView::_PaintBuilding(BView* canvas, BRect bounds)
 	}
 
 	// The five steps of a build
-	static const char* kSteps[] = { "Fetch", "Configure", "Compile",
+	static const char* const kSteps[] = { "Fetch", "Configure", "Compile",
 		"Package", "Sign" };
-	float stepsTop = bounds.top + 126;
-	float stepsWidth = bounds.Width() - kPad * 2 - ringSpace;
-	float stepWidth = stepsWidth / 5;
-	BFont stepFont = Body(11);
-	for (int i = 0; i < 5; i++) {
-		BRect bar(left + i * stepWidth, stepsTop,
-			left + (i + 1) * stepWidth - 4, stepsTop + 4);
-		rgb_color color = i < (int)phase ? kFire
-			: i == (int)phase ? kFire2 : Alpha(kWashi, 30);
-		canvas->SetHighColor(color);
-		canvas->FillRoundRect(bar, 2, 2);
-		if (i == (int)phase) {
-			float pulse = 0.5f + 0.5f * sinf((float)system_time() / 160000.0f);
-			canvas->SetHighColor(Alpha(kFire2, (uint8)(60 * pulse)));
-			canvas->FillRoundRect(bar.InsetByCopy(-2, -3), 3, 3);
-		}
-		canvas->SetFont(&stepFont);
-		canvas->SetHighColor(i <= (int)phase ? kWashi2 : kMuted);
-		const char* step = kSteps[i];
-		if (stepFont.StringWidth(step) > stepWidth - 6 && i == 1)
-			step = "Config";
-		canvas->DrawString(step, BPoint(bar.left, stepsTop + 22));
-	}
+	DrawSteps(canvas, kSteps, (int)phase, left, bounds.top + 126,
+		bounds.Width() - kPad * 2 - ringSpace, kFire2, true);
 
 	char left_[64];
 	snprintf(left_, sizeof(left_), "About %s left",
@@ -685,8 +818,6 @@ StatsView::StatsView(const Model& model)
 	fModel(model),
 	fPool(*model.demo)
 {
-	SetExplicitMinSize(BSize(360, 186));
-	SetExplicitMaxSize(BSize(B_SIZE_UNLIMITED, 186));
 }
 
 
@@ -796,7 +927,6 @@ ActivityView::ActivityView(const Model& model)
 	fModel(model),
 	fPool(*model.demo)
 {
-	SetExplicitMinSize(BSize(360, 112));
 }
 
 
@@ -982,22 +1112,11 @@ NowView::_PaintLive(BView* canvas, BRect bounds)
 	}
 
 	// The steps; uploading replaces signing, which the coordinator does
-	static const char* kSteps[] = { "Fetch", "Configure", "Compile",
+	static const char* const kSteps[] = { "Fetch", "Configure", "Compile",
 		"Package", "Upload" };
 	int phase = uploading ? 4 : std::min((int)live.phase, 3);
-	float stepsTop = bounds.top + 126;
-	float stepWidth = (bounds.Width() - kPad * 2 - ringSpace) / 5;
-	BFont stepFont = Body(11);
-	for (int i = 0; i < 5; i++) {
-		BRect bar(left + i * stepWidth, stepsTop,
-			left + (i + 1) * stepWidth - 4, stepsTop + 4);
-		canvas->SetHighColor(i < phase ? kFire
-			: i == phase ? (paused ? kGold : kFire2) : Alpha(kWashi, 30));
-		canvas->FillRoundRect(bar, 2, 2);
-		canvas->SetFont(&stepFont);
-		canvas->SetHighColor(i <= phase ? kWashi2 : kMuted);
-		canvas->DrawString(kSteps[i], BPoint(bar.left, stepsTop + 22));
-	}
+	DrawSteps(canvas, kSteps, phase, left, bounds.top + 126,
+		bounds.Width() - kPad * 2 - ringSpace, paused ? kGold : kFire2, false);
 
 	// The last thing the build said
 	BFont logFont = Mono(10.5f);

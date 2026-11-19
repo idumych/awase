@@ -108,7 +108,7 @@ PoolView::PoolView(const Model& model)
 	fMouseInside(false),
 	fShownSealed(-1)
 {
-	SetExplicitMinSize(BSize(480, 380));
+	SetExplicitMinSize(BSize(420, 360));
 }
 
 
@@ -135,7 +135,12 @@ PoolView::_Layout(BRect bounds)
 		counts[packages[i].layer]++;
 
 	float left = bounds.left + kSide + 30, right = bounds.right - kSide - 30;
-	float top = bounds.top + kTop, bottom = bounds.bottom - kBottom - 20;
+	float top = bounds.top + kTop - 4, bottom = bounds.bottom - kBottom - 14;
+	// The nodes are nudged off their grid a little, less when a crowded
+	// layer leaves no room between a seal and the name above it.
+	int crowded = *std::max_element(counts.begin(), counts.end());
+	float jitter = std::max(0.0f,
+		std::min(10.0f, ((bottom - top) / crowded - 34) / 2));
 	fNodes.resize(packages.size());
 	for (size_t i = 0; i < packages.size(); i++) {
 		int layer = packages[i].layer;
@@ -144,7 +149,7 @@ PoolView::_Layout(BRect bounds)
 		float y = top + (bottom - top) * (seen[layer] + 0.5f) / counts[layer];
 		seen[layer]++;
 		fNodes[i] = BPoint(x + Jitter(packages[i].name, 14),
-			y + Jitter(packages[i].name + "y", 10));
+			y + Jitter(packages[i].name + "y", jitter));
 	}
 
 	const std::vector<Volunteer>& volunteers = fPool.GetPool().Volunteers();
@@ -240,25 +245,40 @@ PoolView::Paint(BView* canvas, BRect bounds)
 		canvas->FillRoundRect(fill, 1.5f, 1.5f, gradient);
 	}
 
-	// Legend, top right
-	float lx = bounds.right - kSide - 300, ly = bounds.top + 52;
-	canvas->SetHighColor(Alpha(kWashi2, 200));
-	canvas->SetPenSize(1.4f);
-	canvas->StrokeEllipse(BPoint(lx + 5, ly - 4), 4.5f, 4.5f);
-	canvas->SetFont(&mono);
-	canvas->SetHighColor(kMuted);
-	canvas->DrawString("package", BPoint(lx + 16, ly));
-	lx += 88;
-	canvas->SetHighColor(kFire2);
-	canvas->SetPenSize(2);
-	canvas->StrokeLine(BPoint(lx, ly - 4), BPoint(lx + 20, ly - 4));
-	canvas->SetHighColor(kMuted);
-	canvas->DrawString("a build", BPoint(lx + 28, ly));
-	lx += 92;
-	DrawSeal(canvas, BPoint(lx + 7, ly - 4), 7);
-	canvas->SetFont(&mono);
-	canvas->SetHighColor(kMuted);
-	canvas->DrawString("two matched", BPoint(lx + 20, ly));
+	// Legend, top right: in a row beside the title, or in a column above
+	// the graph when the title leaves no room for the row
+	float titleRight = bounds.left + kSide + titleWidth + 14
+		+ mono.StringWidth(count);
+	float columnWidth = 28 + mono.StringWidth("two matched");
+	bool row = bounds.right - kSide - 300 >= titleRight + 24;
+	float lx = row ? bounds.right - kSide - 300
+		: bounds.right - kSide - columnWidth;
+	float ly = bounds.top + (row ? 52 : 26);
+	if (row || lx >= titleRight + 16) {
+		canvas->SetHighColor(Alpha(kWashi2, 200));
+		canvas->SetPenSize(1.4f);
+		canvas->StrokeEllipse(BPoint(lx + 5, ly - 4), 4.5f, 4.5f);
+		canvas->SetFont(&mono);
+		canvas->SetHighColor(kMuted);
+		canvas->DrawString("package", BPoint(lx + (row ? 16 : 28), ly));
+		if (row)
+			lx += 88;
+		else
+			ly += 16;
+		canvas->SetHighColor(kFire2);
+		canvas->SetPenSize(2);
+		canvas->StrokeLine(BPoint(lx, ly - 4), BPoint(lx + 20, ly - 4));
+		canvas->SetHighColor(kMuted);
+		canvas->DrawString("a build", BPoint(lx + 28, ly));
+		if (row)
+			lx += 92;
+		else
+			ly += 16;
+		DrawSeal(canvas, BPoint(lx + 7, ly - 4), 7);
+		canvas->SetFont(&mono);
+		canvas->SetHighColor(kMuted);
+		canvas->DrawString("two matched", BPoint(lx + (row ? 20 : 28), ly));
+	}
 
 	// Dependencies
 	canvas->SetPenSize(1);
@@ -621,25 +641,40 @@ PoolView::_PaintLive(BView* canvas, BRect bounds)
 		live.recent.size() == 1 ? "" : "s");
 	canvas->DrawString(title, BPoint(bounds.left + kSide, bounds.top + 58));
 	BFont mono = Mono(11);
-	canvas->SetFont(&mono);
-	canvas->SetHighColor(kMuted);
-	canvas->DrawString("published, newest first",
-		BPoint(bounds.left + kSide + display.StringWidth(title) + 14,
-			bounds.top + 57));
+	const char* subtitle = "published, newest first";
+	float subtitleLeft = bounds.left + kSide + display.StringWidth(title) + 14;
+	float subtitleRight = subtitleLeft + mono.StringWidth(subtitle);
 
-	// Legend
-	float lx = bounds.right - kSide - 250, ly = bounds.top + 52;
-	DrawSeal(canvas, BPoint(lx + 7, ly - 4), 7);
-	canvas->SetFont(&mono);
-	canvas->SetHighColor(kMuted);
-	canvas->DrawString("2 builds match", BPoint(lx + 20, ly));
-	lx += 130;
-	canvas->SetPenSize(1.6f);
-	canvas->SetHighColor(kFire);
-	canvas->StrokeRoundRect(BRect(lx, ly - 11, lx + 14, ly + 3), 4, 4);
-	canvas->SetPenSize(1);
-	canvas->SetHighColor(kMuted);
-	canvas->DrawString("built here", BPoint(lx + 22, ly));
+	// Legend: in a row beside the title, or else in a column at the top
+	// right, with the title's note left out if it would run into it
+	float columnWidth = 28 + mono.StringWidth("2 builds match");
+	bool row = bounds.right - kSide - 250 >= subtitleRight + 24;
+	float lx = row ? bounds.right - kSide - 250
+		: bounds.right - kSide - columnWidth;
+	float ly = bounds.top + (row ? 52 : 26);
+	bool legend = row || lx >= bounds.left + kSide
+		+ LabelWidth(canvas, label.c_str()) + 16;
+	if (row || !legend || subtitleRight + 16 <= lx) {
+		canvas->SetFont(&mono);
+		canvas->SetHighColor(kMuted);
+		canvas->DrawString(subtitle, BPoint(subtitleLeft, bounds.top + 57));
+	}
+	if (legend) {
+		DrawSeal(canvas, BPoint(lx + 7, ly - 4), 7);
+		canvas->SetFont(&mono);
+		canvas->SetHighColor(kMuted);
+		canvas->DrawString("2 builds match", BPoint(lx + (row ? 20 : 28), ly));
+		if (row)
+			lx += 130;
+		else
+			ly += 16;
+		canvas->SetPenSize(1.6f);
+		canvas->SetHighColor(kFire);
+		canvas->StrokeRoundRect(BRect(lx, ly - 11, lx + 14, ly + 3), 4, 4);
+		canvas->SetPenSize(1);
+		canvas->SetHighColor(kMuted);
+		canvas->DrawString("built here", BPoint(lx + (row ? 22 : 28), ly));
+	}
 
 	// The packages as a wall of seals
 	BRect area(bounds.left + kSide, bounds.top + kTop + 4,
@@ -793,6 +828,9 @@ PoolView::_PaintLive(BView* canvas, BRect bounds)
 	canvas->DrawString("you", BPoint(you.x + 16, you.y + 4));
 	canvas->SetFont(&mono);
 	canvas->SetHighColor(kMuted);
-	canvas->DrawString(live.message.c_str(), BPoint(fModel.TwoMachines()
-		? vmAt.x + 120 : you.x + 52, you.y + 4));
+	float messageLeft = fModel.TwoMachines() ? vmAt.x + 120 : you.x + 52;
+	BString message(live.message.c_str());
+	mono.TruncateString(&message, B_TRUNCATE_END,
+		bounds.right - kSide - messageLeft);
+	canvas->DrawString(message.String(), BPoint(messageLeft, you.y + 4));
 }

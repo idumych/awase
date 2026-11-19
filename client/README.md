@@ -66,6 +66,16 @@ what the portal's own client does, with the same build-command contract:
   claiming again. A coordinator older than the release route gets a
   failure with "infrastructure: <reason>" instead.
 
+View › Mini mode (Alt+M on Renku, Ctrl+M on Linux) shrinks the window to
+what's building, three figures, and Full view and Pause buttons, for
+keeping an eye on it in a corner of the screen. Awase starts in whichever
+mode it was in when you quit, and remembers where each window was.
+
+On Renku, View › Show in Deskbar adds a small ring to Deskbar's tray that
+fills as the build goes (gold while paused, grey when Awase isn't running).
+Its tooltip says what's building; a click shows Awase or starts it, and a
+right-click pauses, resumes or removes it. Deskbar keeps it after a restart.
+
 Pause and "When idle" stop the build's whole process group and resume
 it. So does the temperature limit ("Pause above"): while the CPU is over
 it, the build is stopped, and it carries on once the CPU is 5 °C under the

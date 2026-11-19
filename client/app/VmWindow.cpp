@@ -7,6 +7,7 @@
 #include "VmWindow.h"
 
 #include <Messenger.h>
+#include <Screen.h>
 #include <String.h>
 #include <TextControl.h>
 #include <TextView.h>
@@ -27,7 +28,7 @@ static const float kPad = 26;
 static const float kHeaderHeight = 118;
 static const float kFooterHeight = 62;
 static const float kWidth = 724;
-static const float kHeight = 584;
+static const float kHeight = 552;	// fits an 800x600 screen
 
 enum {
 	kIconDone,
@@ -546,7 +547,7 @@ VmView::_PaintChoose(BView* canvas, BRect bounds)
 	float x = left + column + 40, right = bounds.right - kPad;
 	y = kHeaderHeight + 30;
 	DrawLabel(canvas, BPoint(x, y), "ARCHITECTURES", kMuted);
-	BRect card(x, y + 14, right, y + 240);
+	BRect card(x, y + 14, right, y + 228);
 	canvas->SetHighColor(Alpha(kFire, fX86 ? 22 : 8));
 	canvas->FillRoundRect(card, 8, 8);
 	canvas->SetHighColor(Alpha(kFire, fX86 ? 115 : 50));
@@ -601,7 +602,7 @@ VmView::_PaintChoose(BView* canvas, BRect bounds)
 	canvas->DrawString("Secret", BPoint(tx, ty + 66));
 
 	// What isn't offered, and why
-	BRect other(x, card.bottom + 12, right, card.bottom + 104);
+	BRect other(x, card.bottom + 12, right, card.bottom + 100);
 	canvas->SetHighColor(Alpha(kWashi, 40));
 	canvas->StrokeRoundRect(other, 8, 8, B_MIXED_COLORS);
 	BFont otherTitle = Display(14);
@@ -892,6 +893,14 @@ VmWindow::VmWindow(BWindow* owner, VmSetup& setup, VmService& service,
 	SetPulseRate(100000);
 	if (owner != NULL)
 		CenterIn(owner->Frame());
+	// On a small screen, keep it all on screen, its tab too
+	BRect screen = BScreen(this).Frame();
+	BRect frame = Frame();
+	float dx = std::max(screen.left + 5 - frame.left,
+		std::min(0.0f, screen.right - 5 - frame.right));
+	float dy = std::max(screen.top + 28 - frame.top,
+		std::min(0.0f, screen.bottom - 5 - frame.bottom));
+	MoveBy(dx, dy);
 }
 
 

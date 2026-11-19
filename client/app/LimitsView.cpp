@@ -27,6 +27,35 @@ static const int kMinTemperature = 60;
 static const int kMaxTemperature = 95;
 
 
+// Where the controls go across the row: the two sliders, the x86 VM's
+// control, and the When segments at the right. On a narrow window the gaps
+// and the segments shrink before the sliders do.
+struct Row {
+	float	slider;
+	float	sliderGap;
+	float	vmGap;
+	float	vm;
+	float	segments;
+};
+
+
+static Row
+RowFor(float width)
+{
+	Row row;
+	bool narrow = width < 900;
+	row.segments = narrow ? 190 : 232;
+	row.sliderGap = narrow ? 36 : 56;
+	row.vmGap = kHasVm ? (narrow ? 28 : 44) : 0;
+	float segmentGap = narrow ? 20 : 28;
+	float rest = width - row.segments - row.sliderGap - row.vmGap
+		- segmentGap;
+	row.vm = kHasVm ? std::max(150.0f, std::min(196.0f, rest - 2 * 240)) : 0;
+	row.slider = std::min(kHasVm ? 240.0f : 260.0f, (rest - row.vm) / 2);
+	return row;
+}
+
+
 LimitsView::LimitsView(const Model& model)
 	:
 	InkView("limits"),
@@ -45,13 +74,10 @@ BRect
 LimitsView::_Track(Control control) const
 {
 	BRect bounds = Bounds();
-	// Room on the right for the x86 VM's control and the When segments
-	float width = kHasVm
-		? std::min(240.0f, (bounds.Width() - kPad * 2 - 600) / 2)
-		: std::min(260.0f, (bounds.Width() - kPad * 2 - 360) / 2);
+	Row row = RowFor(bounds.Width() - kPad * 2);
 	float left = bounds.left + kPad
-		+ (control == kTemperature ? width + 56 : 0);
-	return BRect(left, bounds.top + 52, left + width, bounds.top + 56);
+		+ (control == kTemperature ? row.slider + row.sliderGap : 0);
+	return BRect(left, bounds.top + 52, left + row.slider, bounds.top + 56);
 }
 
 
@@ -59,7 +85,8 @@ BRect
 LimitsView::_Segments() const
 {
 	BRect bounds = Bounds();
-	return BRect(bounds.right - kPad - 232, bounds.top + 34,
+	Row row = RowFor(bounds.Width() - kPad * 2);
+	return BRect(bounds.right - kPad - row.segments, bounds.top + 34,
 		bounds.right - kPad, bounds.top + 66);
 }
 
@@ -69,10 +96,9 @@ LimitsView::_VmButton() const
 {
 	if (!kHasVm)
 		return BRect();		// invalid: nothing to click or draw
-	BRect temperature = _Track(kTemperature);
-	float left = temperature.right + 44;
-	return BRect(left, Bounds().top + 34, std::min(left + 196,
-		_Segments().left - 28), Bounds().top + 66);
+	Row row = RowFor(Bounds().Width() - kPad * 2);
+	float left = _Track(kTemperature).right + row.vmGap;
+	return BRect(left, Bounds().top + 34, left + row.vm, Bounds().top + 66);
 }
 
 

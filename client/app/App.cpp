@@ -8,19 +8,22 @@
 #include <Application.h>
 #include <Screen.h>
 
+#include "DeskbarView.h"
 #include "Ink.h"
 #include "MainWindow.h"
 #include "Settings.h"
+#include "Views.h"
 
 
-static const char* kSignature = "application/x-vnd.Awase";
+static const char* kSignature = AWASE_SIGNATURE;
 
 
 class App : public BApplication {
 public:
 	App()
 		:
-		BApplication(kSignature)
+		BApplication(kSignature),
+		fWindow(NULL)
 	{
 	}
 
@@ -30,19 +33,43 @@ public:
 		Settings settings;
 		settings.Load();
 
-		// Keep the window on screen if the screen got smaller.
-		BRect screen = BScreen().Frame();
-		BRect frame = settings.frame;
-		if (!screen.Contains(frame.LeftTop()) || frame.Width() > screen.Width()
-			|| frame.Height() > screen.Height()) {
-			frame.OffsetTo(screen.left + 40, screen.top + 40);
-			if (frame.Width() > screen.Width() - 80)
-				frame.right = frame.left + screen.Width() - 80;
-			if (frame.Height() > screen.Height() - 80)
-				frame.bottom = frame.top + screen.Height() - 80;
+		// Keep the window on screen if the screen is smaller than it. The
+		// window's size limits keep it from getting too small.
+		settings.frame = FitOnScreen(settings.frame, BScreen().Frame());
+		fWindow = new MainWindow(settings);
+		fWindow->Show();
+	}
+
+	// The Deskbar replicant asks how the build is going, shows the window
+	// and pauses.
+	virtual void MessageReceived(BMessage* message)
+	{
+		switch (message->what) {
+			case kMsgDeskbarQuery:
+			{
+				BMessage reply(kMsgDeskbarState);
+				if (fWindow != NULL && fWindow->LockWithTimeout(100000) == B_OK) {
+					fWindow->DeskbarState(reply);
+					fWindow->Unlock();
+					message->SendReply(&reply, (BHandler*)NULL, 100000);
+				}
+				break;
+			}
+			case kMsgDeskbarOpen:
+				if (fWindow != NULL && fWindow->LockWithTimeout(100000) == B_OK) {
+					if (fWindow->IsMinimized())
+						fWindow->Minimize(false);
+					fWindow->Activate();
+					fWindow->Unlock();
+				}
+				break;
+			case kMsgTogglePause:
+				if (fWindow != NULL)
+					fWindow->PostMessage(kMsgTogglePause);
+				break;
+			default:
+				BApplication::MessageReceived(message);
 		}
-		settings.frame = frame;
-		(new MainWindow(settings))->Show();
 	}
 
 	virtual void AboutRequested()
@@ -59,6 +86,9 @@ public:
 			"OK");
 		alert->Go(NULL);
 	}
+
+private:
+	MainWindow*	fWindow;
 };
 
 

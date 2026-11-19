@@ -7,9 +7,13 @@
 #include "MainWindow.h"
 
 #include "ConnectWindow.h"
+#include "DeskbarView.h"
 #include "VmWindow.h"
 
 #include <Application.h>
+#ifdef AWASE_DESKBAR
+#include <Deskbar.h>
+#endif
 #include <InterfaceDefs.h>
 #include <LayoutBuilder.h>
 #include <Menu.h>
@@ -17,6 +21,9 @@
 #include <MenuItem.h>
 #include <MessageRunner.h>
 #include <Roster.h>
+#include <Screen.h>
+
+#include <stdio.h>
 
 
 static const bigtime_t kFrameInterval = 33333;	// 30 frames a second
@@ -37,7 +44,10 @@ MainWindow::MainWindow(const Settings& settings)
 	fSettings(settings),
 	fTicker(NULL),
 	fLastTick(system_time()),
-	fFrame(0)
+	fFrame(0),
+	fMini(false),
+	fFullFrame(settings.frame),
+	fMiniAt(settings.miniAt)
 {
 	fModel.demo = &fPool;
 	fModel.live = false;
@@ -55,13 +65,24 @@ MainWindow::MainWindow(const Settings& settings)
 	fModel.vmSnapshot = fVm.Snapshot();
 	fVm.SetLimits(settings.limits);
 
-	BMenuBar* menuBar = new BMenuBar("menu");
+	BMenuBar* menuBar = fMenuBar = new BMenuBar("menu");
 	BMenu* app = new BMenu("Awase");
 	app->AddItem(new BMenuItem("About Awase" B_UTF8_ELLIPSIS,
 		new BMessage(B_ABOUT_REQUESTED)));
 	app->AddSeparatorItem();
 	app->AddItem(new BMenuItem("Quit", new BMessage(B_QUIT_REQUESTED), 'Q'));
 	menuBar->AddItem(app);
+
+	BMenu* view = new BMenu("View");
+	fMiniItem = new BMenuItem("Mini mode", new BMessage(kMsgToggleMini), 'M');
+	view->AddItem(fMiniItem);
+	fDeskbarItem = NULL;
+#ifdef AWASE_DESKBAR
+	fDeskbarItem = new BMenuItem("Show in Deskbar",
+		new BMessage(kMsgToggleDeskbar));
+	view->AddItem(fDeskbarItem);
+#endif
+	menuBar->AddItem(view);
 
 	BMenu* pool = new BMenu("Pool");
 	fPauseItem = new BMenuItem("Pause building", new BMessage(kMsgTogglePause),
@@ -90,22 +111,23 @@ MainWindow::MainWindow(const Settings& settings)
 	fStatsView = new StatsView(fModel);
 	fActivityView = new ActivityView(fModel);
 	fLimitsView = new LimitsView(fModel);
+	fColumn = new PanelColumn(fNowView, fStatsView, fActivityView);
+	fPocketView = new PocketView(fModel);
 
 	BLayoutBuilder::Group<>(this, B_VERTICAL, 0)
 		.Add(menuBar)
 		.Add(fHeader)
 		.AddGroup(B_HORIZONTAL, 0)
 			.Add(fPoolView, 3)
-			.AddGroup(B_VERTICAL, 0, 2)
-				.Add(fNowView)
-				.Add(fStatsView)
-				.Add(fActivityView)
-			.End()
+			.Add(fColumn, 2)
 		.End()
-		.Add(fLimitsView);
+		.Add(fLimitsView)
+		.Add(fPocketView);
+	fPocketView->Hide();
 
 	_SetLimits(fPool.GetLimits());
 	_UseCoordinator(settings.useCoordinator && settings.CoordinatorReady());
+	_SetMini(settings.mini);
 
 	BMessage tick(kMsgTick);
 	fTicker = new BMessageRunner(BMessenger(this), &tick, kFrameInterval);
@@ -148,6 +170,24 @@ MainWindow::MessageReceived(BMessage* message)
 			_SetLimits(limits);
 			break;
 		}
+
+		case kMsgToggleMini:
+			_SetMini(!fMini);
+			break;
+
+#ifdef AWASE_DESKBAR
+		case kMsgToggleDeskbar:
+		{
+			// Added by its file, so Deskbar keeps it after a restart
+			BDeskbar deskbar;
+			app_info info;
+			if (deskbar.HasItem(kDeskbarItemName))
+				deskbar.RemoveItem(kDeskbarItemName);
+			else if (be_app->GetAppInfo(&info) == B_OK)
+				deskbar.AddItem(&info.ref);
+			break;
+		}
+#endif
 
 		case kMsgUseDemo:
 			_UseCoordinator(false);
@@ -255,6 +295,55 @@ MainWindow::QuitRequested()
 
 
 void
+MainWindow::MenusBeginning()
+{
+	BWindow::MenusBeginning();
+#ifdef AWASE_DESKBAR
+	fDeskbarItem->SetMarked(BDeskbar().HasItem(kDeskbarItemName));
+#endif
+}
+
+
+void
+MainWindow::DeskbarState(BMessage& reply) const
+{
+	rgb_color dot;
+	reply.AddString("status", StatusText(fModel, dot));
+	reply.AddBool("paused", fPool.GetLimits().paused);
+	bool building = false;
+	float progress = -1;
+	std::string port;
+	char figure[64];
+	if (fModel.live) {
+		const awase::LiveSnapshot& live = fModel.snapshot;
+		bool uploading = live.state == awase::kLiveUploading
+			|| live.state == awase::kLiveReporting;
+		building = live.hasJob && (uploading
+			|| live.state == awase::kLiveBuilding);
+		if (live.hasJob)
+			port = live.job.port;
+		if (uploading && live.toUpload > 0)
+			progress = (float)live.uploaded / live.toUpload;
+		snprintf(figure, sizeof(figure), "%d built", live.succeeded);
+	} else {
+		const awase::Pool& pool = fPool.GetPool();
+		int package = pool.YourPackage();
+		building = package >= 0 && !fPool.GetLimits().paused;
+		if (package >= 0) {
+			port = pool.Packages()[package].name;
+			progress = (float)pool.YourProgress();
+		}
+		snprintf(figure, sizeof(figure), "%d sealed (demo pool)",
+			pool.YourStats().accepted);
+	}
+	reply.AddBool("building", building);
+	reply.AddFloat("progress", progress);
+	reply.AddString("port", port.c_str());
+	reply.AddString("figure", figure);
+}
+
+
+void
 MainWindow::_Tick()
 {
 	bigtime_t now = system_time();
@@ -288,6 +377,12 @@ MainWindow::_Tick()
 		fPool.Step(seconds);
 	}
 
+	if (fMini) {
+		fPocketView->Invalidate();
+		fFrame++;
+		return;
+	}
+
 	// The pool and the current build move every frame; the rest is cheap
 	// enough to redraw a few times a second.
 	fPoolView->Invalidate();
@@ -313,6 +408,7 @@ MainWindow::_SetLimits(const awase::Limits& limits)
 	fHeader->Invalidate();
 	fNowView->Invalidate();
 	fLimitsView->Invalidate();
+	fPocketView->Invalidate();
 }
 
 
@@ -365,6 +461,44 @@ MainWindow::_ShowVms()
 
 
 void
+MainWindow::_SetMini(bool mini)
+{
+	if (mini == fMini)
+		return;
+	if (mini)
+		fFullFrame = Frame();
+	else
+		fMiniAt = Frame().LeftTop();
+	fMini = mini;
+
+	BView* full[] = { fMenuBar, fHeader, fPoolView, fColumn, fLimitsView };
+	for (BView* view : full) {
+		if (mini)
+			view->Hide();
+		else
+			view->Show();
+	}
+	if (mini)
+		fPocketView->Show();
+	else
+		fPocketView->Hide();
+	const uint32 fixed = B_NOT_RESIZABLE | B_NOT_ZOOMABLE;
+	SetFlags(mini ? Flags() | fixed : Flags() & ~fixed);
+	UpdateSizeLimits();
+
+	BRect frame = fFullFrame;
+	if (mini) {
+		BSize size = fPocketView->ExplicitMinSize();
+		frame = BRect(fMiniAt, fMiniAt + BPoint(size.width, size.height));
+	}
+	frame = FitOnScreen(frame, BScreen(this).Frame());
+	MoveTo(frame.LeftTop());
+	ResizeTo(frame.Width(), frame.Height());
+	fMiniItem->SetMarked(mini);
+}
+
+
+void
 MainWindow::_UpdateVm()
 {
 	bool want = kHasVm && fModel.live && fSettings.vmEnabled
@@ -399,7 +533,9 @@ MainWindow::_UpdateMenu()
 void
 MainWindow::_SaveSettings()
 {
-	fSettings.frame = Frame();
+	fSettings.frame = fMini ? fFullFrame : Frame();
+	fSettings.mini = fMini;
+	fSettings.miniAt = fMini ? Frame().LeftTop() : fMiniAt;
 	fSettings.limits = fPool.GetLimits();
 	awase::LiveSnapshot live = fLive.Snapshot();
 	fSettings.builds = live.builds;
@@ -407,4 +543,26 @@ MainWindow::_SaveSettings()
 	fSettings.failed = live.failed;
 	fSettings.buildSeconds = live.buildSeconds;
 	fSettings.Save();
+}
+
+
+BRect
+FitOnScreen(BRect frame, BRect screen)
+{
+	// Room for the window's border, and its tab above it
+	BRect usable(screen.left + 5, screen.top + 28, screen.right - 5,
+		screen.bottom - 5);
+	if (frame.Width() > usable.Width())
+		frame.right = frame.left + usable.Width();
+	if (frame.Height() > usable.Height())
+		frame.bottom = frame.top + usable.Height();
+	if (frame.right > usable.right)
+		frame.OffsetBy(usable.right - frame.right, 0);
+	if (frame.bottom > usable.bottom)
+		frame.OffsetBy(0, usable.bottom - frame.bottom);
+	if (frame.left < usable.left)
+		frame.OffsetBy(usable.left - frame.left, 0);
+	if (frame.top < usable.top)
+		frame.OffsetBy(0, usable.top - frame.top);
+	return frame;
 }

@@ -16,8 +16,14 @@
 #include "VmSetup.h"
 
 
+class BMenuBar;
 class BMenuItem;
 class BMessageRunner;
+
+
+// The frame moved and shrunk as needed to be all on screen, its tab and
+// border too.
+BRect				FitOnScreen(BRect frame, BRect screen);
 
 
 class MainWindow : public BWindow {
@@ -27,6 +33,10 @@ public:
 
 	virtual	void				MessageReceived(BMessage* message);
 	virtual	bool				QuitRequested();
+	virtual	void				MenusBeginning();
+
+	// How the build is going, for the Deskbar replicant
+			void				DeskbarState(BMessage& reply) const;
 
 private:
 			void				_Tick();
@@ -36,6 +46,8 @@ private:
 			void				_UpdateMenu();
 			void				_SaveSettings();
 			void				_ShowVms();
+			// Shrinks the window to the pocket view, or back
+			void				_SetMini(bool mini);
 			// Starts or stops building in the x86 VM to match the settings
 			void				_UpdateVm();
 
@@ -50,6 +62,13 @@ private:
 			bigtime_t			fLastTick;
 			int					fFrame;
 
+			bool				fMini;
+			BRect				fFullFrame;	// while mini
+			BPoint				fMiniAt;	// while full
+
+			BMenuBar*			fMenuBar;
+			BMenuItem*			fMiniItem;
+			BMenuItem*			fDeskbarItem;
 			BMenuItem*			fPauseItem;
 			BMenuItem*			fDemoItem;
 			BMenuItem*			fCoordinatorItem;
@@ -59,6 +78,8 @@ private:
 			StatsView*			fStatsView;
 			ActivityView*		fActivityView;
 			LimitsView*			fLimitsView;
+			PanelColumn*		fColumn;
+			PocketView*			fPocketView;
 };
 
 

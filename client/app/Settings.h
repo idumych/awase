@@ -27,7 +27,9 @@ struct Settings {
 			std::string			VmDir() const;
 			bool				VmReady() const;
 
-			BRect				frame;
+			BRect				frame;		// the full window
+			bool				mini;		// shrunk to mini mode
+			BPoint				miniAt;		// where the mini window was
 			awase::Limits		limits;
 
 			bool				useCoordinator;

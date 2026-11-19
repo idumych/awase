@@ -37,6 +37,8 @@ FindString(const BMessage& message, const char* name, const std::string& fallbac
 Settings::Settings()
 	:
 	frame(60, 50, 60 + 1100, 50 + 690),
+	mini(false),
+	miniAt(60, 50),
 	useCoordinator(false),
 	vmEnabled(false),
 	vmCores(4),
@@ -115,6 +117,9 @@ Settings::Load()
 	BRect savedFrame;
 	if (message.FindRect("frame", &savedFrame) == B_OK && savedFrame.IsValid())
 		frame = savedFrame;
+	BPoint point;
+	if (message.FindPoint("mini at", &point) == B_OK)
+		miniAt = point;
 	int32 value;
 	bool flag;
 	double number;
@@ -126,6 +131,8 @@ Settings::Load()
 		limits.idleOnly = flag;
 	if (message.FindBool("paused", &flag) == B_OK)
 		limits.paused = flag;
+	if (message.FindBool("mini", &flag) == B_OK)
+		mini = flag;
 
 	if (message.FindBool("use coordinator", &flag) == B_OK)
 		useCoordinator = flag;
@@ -169,6 +176,8 @@ Settings::Save() const
 		return status;
 	BMessage message('awst');
 	message.AddRect("frame", frame);
+	message.AddBool("mini", mini);
+	message.AddPoint("mini at", miniAt);
 	message.AddInt32("cores", limits.cores);
 	message.AddInt32("temperature", limits.maxTemperature);
 	message.AddBool("idle", limits.idleOnly);

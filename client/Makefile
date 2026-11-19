@@ -41,10 +41,15 @@ CORE := core/Pool.cpp core/DemoPool.cpp core/Json.cpp core/Sha256.cpp \
 	core/Portal.cpp core/Builder.cpp core/LivePool.cpp core/Thermal.cpp \
 	$(VM_CORE)
 APP := app/App.cpp app/ConnectWindow.cpp app/Ink.cpp app/LimitsView.cpp \
-	app/MainWindow.cpp \
+	app/MainWindow.cpp app/PocketView.cpp app/DeskbarView.cpp \
 	app/Panels.cpp app/PoolView.cpp app/Settings.cpp app/VmWindow.cpp
 # Beyond the Haiku API, on every platform: libcurl for the coordinator's API
 APP_LIBS := -lcurl
+
+# Deskbar loads the app as an add-on to make its replicant, and looks up
+# instantiate_deskbar_item and DeskbarView::Instantiate in it; the soname is
+# what Haiku's own Application rule gives apps.
+HAIKU_APP_LDFLAGS := -rdynamic -Wl,-soname=_APP_
 
 ifneq ($(HAIKU_CROSS),)
   PLATFORM := haiku
@@ -62,13 +67,14 @@ ifneq ($(HAIKU_CROSS),)
     XRES := $(HAIKU_TOOLS)/xres
   endif
   # libcurl's own libraries (ssl, zlib, ...) are on the system, not in the sysroot
-  override LDFLAGS += -Wl,--allow-shlib-undefined
+  override LDFLAGS += -Wl,--allow-shlib-undefined $(HAIKU_APP_LDFLAGS)
   LIBS := -lbe -lnetwork $(APP_LIBS)
   MIMESET := true
   RESOURCES = $(XRES) -o $@ obj/$(NAME).rsrc
 else ifeq ($(UNAME),Haiku)
   PLATFORM := haiku
   RC := rc
+  override LDFLAGS += $(HAIKU_APP_LDFLAGS)
   LIBS := -lbe -lnetwork $(APP_LIBS)
   MIMESET := mimeset -f
   RESOURCES = xres -o $@ obj/$(NAME).rsrc
