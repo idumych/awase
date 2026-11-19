@@ -67,10 +67,13 @@ HostAccelerator()
 {
 #ifdef __HAIKU__
 	static const Accelerator kAccel = { "NVMM", "nvmm",
-		"Haiku's hardware virtualization" };
+		"Haiku's hardware virtualization", "max" };
 #else
+	// Without NX: given it, 32-bit Renku pages with PAE, and its smbios
+	// driver then panics at boot under KVM (page fault in
+	// vm_memcpy_from_physical, with interrupts disabled)
 	static const Accelerator kAccel = { "KVM", "kvm",
-		"Linux's hardware virtualization" };
+		"Linux's hardware virtualization", "max,-nx" };
 #endif
 	return kAccel;
 }

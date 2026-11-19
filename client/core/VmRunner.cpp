@@ -110,7 +110,7 @@ VmRunner::Start(const VmConfig& config, std::string& error)
 		config.sshPort);
 	std::vector<std::string> args;
 	const char* fixed[] = { "-accel", HostAccelerator().qemu, "-machine", "pc",
-		"-cpu", "max",
+		"-cpu", HostAccelerator().cpu,
 		NULL };
 	for (int i = 0; fixed[i] != NULL; i++)
 		args.push_back(fixed[i]);

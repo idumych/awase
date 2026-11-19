@@ -24,6 +24,7 @@ struct Accelerator {
 	const char*			name;			// "NVMM", "KVM"
 	const char*			qemu;			// -accel's argument
 	const char*			what;			// "Haiku's hardware virtualization"
+	const char*			cpu;			// -cpu's argument
 };
 
 const Accelerator&	HostAccelerator();
