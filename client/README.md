@@ -6,14 +6,18 @@ portal at [Druware/RenkuOSPorts-Portal](https://github.com/Druware/RenkuOSPorts-
 or shows a **simulated demo pool** of the two-build design, in which
 nothing is built or uploaded.
 
-Releases are for Renku OS: an x86_64 package (which installs on Haiku R1/beta6
-too) and an arm64 one, on the
-[releases page](https://github.com/idumych/awase/releases). The arm64 package
-is the lite build: arm64 has no NVMM, so it has no x86 build VM (below). The
-same source also builds for Linux as an AppImage (x86_64 and aarch64, through
-[Hokku](https://github.com/idumych/hokku), a fork of Cosmoe) and for
-VitruvianOS, a BeOS-like OS based on Linux (`.deb`, amd64 and arm64), but
-those aren't released yet.
+Releases, on the [releases page](https://github.com/idumych/awase/releases):
+
+- **Renku OS:** an x86_64 package (which installs on Haiku R1/beta6 too) and
+  an arm64 one.
+- **Linux:** an AppImage for x86_64 and aarch64, built with
+  [Hokku](https://github.com/idumych/hokku), a fork of Cosmoe.
+- **VitruvianOS**, a BeOS-like OS based on Linux: an amd64 `.deb`. The source
+  builds an arm64 `.deb` too, but it isn't released, since there's no arm64
+  VitruvianOS machine to test it on.
+
+The arm64 builds are lite: without an accelerator for x86 code they have no
+x86 build VM (below).
 
 ## Screenshots
 
@@ -140,7 +144,8 @@ powered off on quit, its build given back. The window shows both machines:
 comet, and the activity both machines' events.
 
 The VM and its files are in `~/config/non-packaged/data/Awase/vm` on
-Renku and VitruvianOS (on Linux, Cosmoe's equivalent folder).
+Renku, `~/config/data/Awase/vm` on VitruvianOS (it has no non-packaged
+folder) and `~/.local/share/cosmoe/Awase/vm` for the AppImage.
 
 ## awase-tui: the terminal client for Linux servers
 

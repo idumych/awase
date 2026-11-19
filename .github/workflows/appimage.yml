@@ -4,11 +4,8 @@ name: appimage
 # Ubuntu 24.04 so the AppImage runs on that glibc or newer. One job per architecture, each
 # native (ubuntu-24.04 / ubuntu-24.04-arm), each starting the AppImage it built under X11
 # (Xvfb) and Wayland (headless sway). Run it by hand before a release
-# (gh workflow run appimage.yml --ref <branch>) and test those artifacts; on a v* tag it
-# attaches each AppImage to the release only if that file isn't attached yet, so the tested
-# ones that SHA256SUMS describes are kept.
-# Not on tags for now: the AppImages don't ship with Awase 0.3.0 (haiku-app.env
-# PLATFORMS), so a tag mustn't attach them. Put the trigger back when they do.
+# (gh workflow run appimage.yml --ref <branch>) and test those artifacts. Not on tags:
+# releases are made by hand from the tested files (gh release create).
 on:
   workflow_dispatch:
 
