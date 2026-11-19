@@ -7,8 +7,10 @@
 #include "Views.h"
 
 #include "DemoPool.h"
+#include "VmWindow.h"
 
 #include <Message.h>
+#include <String.h>
 #include <Window.h>
 
 #include <algorithm>
@@ -31,7 +33,8 @@ LimitsView::LimitsView(const Model& model)
 	fModel(model),
 	fPool(*model.demo),
 	fDragging(kNone),
-	fHover(kNone)
+	fHover(kNone),
+	fVmHover(false)
 {
 	SetExplicitMinSize(BSize(600, 84));
 	SetExplicitMaxSize(BSize(B_SIZE_UNLIMITED, 84));
@@ -42,7 +45,8 @@ BRect
 LimitsView::_Track(Control control) const
 {
 	BRect bounds = Bounds();
-	float width = std::min(260.0f, (bounds.Width() - kPad * 2 - 360) / 2);
+	// Room on the right for the x86 VM's control and the When segments
+	float width = std::min(240.0f, (bounds.Width() - kPad * 2 - 600) / 2);
 	float left = bounds.left + kPad
 		+ (control == kTemperature ? width + 56 : 0);
 	return BRect(left, bounds.top + 52, left + width, bounds.top + 56);
@@ -58,10 +62,24 @@ LimitsView::_Segments() const
 }
 
 
+BRect
+LimitsView::_VmButton() const
+{
+	BRect temperature = _Track(kTemperature);
+	float left = temperature.right + 44;
+	return BRect(left, Bounds().top + 34, std::min(left + 196,
+		_Segments().left - 28), Bounds().top + 66);
+}
+
+
 void
 LimitsView::MouseDown(BPoint where)
 {
 	SetMouseEventMask(B_POINTER_EVENTS, B_LOCK_WINDOW_FOCUS);
+	if (_VmButton().Contains(where)) {
+		Window()->PostMessage(kMsgShowVms);
+		return;
+	}
 	const Limits& limits = fPool.GetLimits();
 	BRect segments = _Segments();
 	if (segments.Contains(where)) {
@@ -95,8 +113,10 @@ LimitsView::MouseMoved(BPoint where, uint32 transit, const BMessage* drag)
 				hover = (Control)c;
 		}
 	}
-	if (hover != fHover) {
+	bool vmHover = transit != B_EXITED_VIEW && _VmButton().Contains(where);
+	if (hover != fHover || vmHover != fVmHover) {
 		fHover = hover;
+		fVmHover = vmHover;
 		Invalidate();
 	}
 	InkView::MouseMoved(where, transit, drag);
@@ -215,6 +235,51 @@ LimitsView::Paint(BView* canvas, BRect bounds)
 		canvas->SetHighColor(live.tooHot ? kGold : kMuted);
 		canvas->DrawString(reading, BPoint(track.left, track.bottom + 17));
 	}
+
+	// The x86 VM: its state, and the way to its window
+	BRect vm = _VmButton();
+	const char* vmLabel = fModel.vmReady ? "X86 VM" : "BUILD X86 TOO";
+	DrawLabel(canvas, BPoint(vm.left, vm.top - 8), vmLabel, kMuted);
+	std::string state;
+	rgb_color dot = kMuted;
+	if (fModel.vmSettingUp) {
+		char buffer[32];
+		snprintf(buffer, sizeof(buffer), "Setting up %d%%",
+			(int)(fModel.vmSetupFraction * 100));
+		state = buffer;
+		dot = kFire;
+	} else if (!fModel.vmReady)
+		state = "Set up\xe2\x80\xa6";
+	else if (!fModel.vmOn)
+		state = "Off";
+	else if (fModel.vmState == kVmRunning) {
+		state = fModel.vmFrozen ? "Paused" : "Running";
+		dot = fModel.vmFrozen ? kMuted : kGold;
+	} else if (fModel.vmState == kVmStarting) {
+		state = "Starting";
+		dot = kGold;
+	} else if (fModel.vmState == kVmFailed) {
+		state = "Stopped";
+		dot = kGold;
+	} else
+		state = fModel.live ? "Off" : "Off in the demo";
+	canvas->SetHighColor(Alpha(kGold, fVmHover ? 34 : 16));
+	canvas->FillRoundRect(vm, 6, 6);
+	canvas->SetHighColor(Alpha(kGold, fVmHover ? 150 : 90));
+	canvas->StrokeRoundRect(vm, 6, 6);
+	BPoint dotAt(vm.left + 16, vm.top + vm.Height() / 2);
+	if (dot == kGold || dot == kFire) {
+		DrawGlow(canvas, dotAt, 9, dot, 1.0f);
+		canvas->SetHighColor(dot);
+	} else
+		canvas->SetHighColor(Alpha(dot, 200));
+	canvas->FillEllipse(dotAt, 4, 4);
+	BFont vmFont = Body(12.5f, true);
+	canvas->SetFont(&vmFont);
+	canvas->SetHighColor(kWashi);
+	BString vmText(state.c_str());
+	vmFont.TruncateString(&vmText, B_TRUNCATE_END, vm.Width() - 40);
+	canvas->DrawString(vmText.String(), BPoint(vm.left + 30, vm.top + 21));
 
 	// When: two segments
 	BRect segments = _Segments();

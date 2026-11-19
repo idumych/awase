@@ -7,6 +7,7 @@
 #include "MainWindow.h"
 
 #include "ConnectWindow.h"
+#include "VmWindow.h"
 
 #include <Application.h>
 #include <InterfaceDefs.h>
@@ -45,6 +46,14 @@ MainWindow::MainWindow(const Settings& settings)
 	fLive.SetTotals(settings.builds, settings.succeeded, settings.failed,
 		settings.buildSeconds);
 	fModel.snapshot = fLive.Snapshot();
+	fModel.vmReady = settings.VmReady();
+	fModel.vmOn = settings.vmEnabled;
+	fModel.vmState = awase::kVmOff;
+	fModel.vmFrozen = false;
+	fModel.vmSettingUp = false;
+	fModel.vmSetupFraction = 0;
+	fModel.vmSnapshot = fVm.Snapshot();
+	fVm.SetLimits(settings.limits);
 
 	BMenuBar* menuBar = new BMenuBar("menu");
 	BMenu* app = new BMenu("Awase");
@@ -66,6 +75,8 @@ MainWindow::MainWindow(const Settings& settings)
 	pool->AddItem(fCoordinatorItem);
 	pool->AddItem(new BMenuItem("Coordinator" B_UTF8_ELLIPSIS,
 		new BMessage(kMsgShowConnect), ',', B_SHIFT_KEY));
+	pool->AddItem(new BMenuItem("Virtual machines" B_UTF8_ELLIPSIS,
+		new BMessage(kMsgShowVms)));
 	pool->AddSeparatorItem();
 	pool->AddItem(new BMenuItem("Open the Awase website",
 		new BMessage(kMsgWebsite)));
@@ -169,6 +180,46 @@ MainWindow::MessageReceived(BMessage* message)
 			break;
 		}
 
+		case kMsgShowVms:
+			_ShowVms();
+			break;
+
+		case kMsgVmSetup:
+		{
+			const char* value;
+			if (message->FindString("client", &value) == B_OK)
+				fSettings.vmClientId = value;
+			if (message->FindString("secret", &value) == B_OK)
+				fSettings.vmSecret = value;
+			_SaveSettings();
+			awase::VmSetupConfig config
+				= awase::VmSetup::DefaultConfig(fSettings.VmDir());
+			config.vm.cores = fSettings.vmCores;
+			config.vm.memoryMB = fSettings.vmMemoryMB;
+			// A VM left running from before can't share its disk with setup
+			fVm.Stop();
+			fVmSetup.Start(config);
+			break;
+		}
+
+		case kMsgVmCancelSetup:
+			fVmSetup.RequestCancel();
+			break;
+
+		case kMsgVmBuild:
+		{
+			bool on;
+			if (message->FindBool("on", &on) == B_OK) {
+				fSettings.vmEnabled = on;
+				_SaveSettings();
+				_UpdateVm();
+				BMessage state(kMsgVmEnabled);
+				state.AddBool("on", on);
+				fVmWindow.SendMessage(&state);
+			}
+			break;
+		}
+
 		case kMsgWebsite:
 		{
 			const char* argv[] = { kWebsite, NULL };
@@ -192,6 +243,8 @@ MainWindow::QuitRequested()
 	// Stopping gives a build in progress back to the coordinator, so it can
 	// hand the job out again at once instead of waiting out the lease.
 	fLive.Stop();
+	fVmSetup.Cancel();
+	fVm.Stop();		// gives its build back too, and powers the VM off
 	_SaveSettings();
 	be_app->PostMessage(B_QUIT_REQUESTED);
 	return true;
@@ -206,6 +259,24 @@ MainWindow::_Tick()
 	fLastTick = now;
 
 	bool idle = idle_time() >= kIdleAfter;
+	// The x86 VM: its setup, and building in it
+	if (fFrame % 3 == 0) {
+		awase::VmSetupSnapshot setup = fVmSetup.Snapshot();
+		bool wasSettingUp = fModel.vmSettingUp;
+		fModel.vmSettingUp = setup.running;
+		fModel.vmSetupFraction = setup.fraction;
+		if (wasSettingUp && !setup.running) {
+			fModel.vmReady = fSettings.VmReady();
+			_UpdateVm();
+		}
+		fVm.SetIdle(idle);
+		fVm.Update();
+		fModel.vmState = fVm.State();
+		fModel.vmFrozen = fVm.Frozen();
+		fModel.vmMessage = fVm.Message();
+		fModel.vmOn = fSettings.vmEnabled;
+		fModel.vmSnapshot = fVm.Snapshot();
+	}
 	if (fModel.live) {
 		fLive.SetIdle(idle);
 		fModel.snapshot = fLive.Snapshot();
@@ -223,8 +294,7 @@ MainWindow::_Tick()
 		fActivityView->Invalidate();	// the newest event fading
 	if (fFrame++ % 6 == 0) {
 		fStatsView->Invalidate();
-		if (fModel.live)
-			fLimitsView->Invalidate();	// the temperature reading
+		fLimitsView->Invalidate();	// the temperature, the VM's state
 	}
 }
 
@@ -234,6 +304,7 @@ MainWindow::_SetLimits(const awase::Limits& limits)
 {
 	fPool.SetLimits(limits);
 	fLive.SetLimits(fPool.GetLimits());
+	fVm.SetLimits(fPool.GetLimits());
 	fPauseItem->SetLabel(fPool.GetLimits().paused
 		? "Resume building" : "Pause building");
 	fHeader->Invalidate();
@@ -252,6 +323,7 @@ MainWindow::_UseCoordinator(bool use)
 		fLive.Stop();
 	fModel.live = use;
 	fModel.snapshot = fLive.Snapshot();
+	_UpdateVm();
 	_UpdateMenu();
 	fHeader->Invalidate();
 	fStatsView->Invalidate();
@@ -266,6 +338,49 @@ MainWindow::_ShowConnect()
 	frame.OffsetTo(Frame().left + 120, Frame().top + 120);
 	(new ConnectWindow(frame, fSettings.coordinator, BMessenger(this)))
 		->Show();
+}
+
+
+void
+MainWindow::_ShowVms()
+{
+	if (fVmWindow.IsValid()) {
+		BLooper* looper = NULL;
+		fVmWindow.Target(&looper);
+		BWindow* window = dynamic_cast<BWindow*>(looper);
+		if (window != NULL && window->Lock()) {
+			window->Activate();
+			window->Unlock();
+		}
+		return;
+	}
+	VmWindow* window = new VmWindow(this, fVmSetup, fVm, fSettings.VmDir(),
+		fSettings.vmClientId, fSettings.vmSecret, fSettings.vmEnabled);
+	fVmWindow = BMessenger(window);
+	window->Show();
+}
+
+
+void
+MainWindow::_UpdateVm()
+{
+	bool want = fModel.live && fSettings.vmEnabled && fSettings.VmReady()
+		&& !fSettings.vmClientId.empty() && !fSettings.vmSecret.empty()
+		&& !fVmSetup.Running();
+	if (want && !fVm.Active()) {
+		awase::VmConfig vm = awase::VmSetup::DefaultConfig(
+			fSettings.VmDir()).vm;
+		vm.cores = fSettings.vmCores;
+		vm.memoryMB = fSettings.vmMemoryMB;
+		awase::LiveConfig live = fSettings.coordinator;
+		live.clientId = fSettings.vmClientId;
+		live.secret = fSettings.vmSecret;
+		live.workDir = fSettings.VmDir() + "/work";
+		fVm.SetLimits(fPool.GetLimits());
+		fVm.Start(vm, live);
+	} else if (!want && fVm.Active())
+		fVm.StopAsync();
+	fModel.vmOn = fSettings.vmEnabled;
 }
 
 

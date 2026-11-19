@@ -49,6 +49,57 @@ Bezier(BPoint p0, BPoint p1, BPoint p2, BPoint p3, float t)
 }
 
 
+// A build in flight on the live wall: a thread from the machine to the
+// package's cell, with a light running along it (nobody knows how far a
+// build has got), a glowing head and sparks shed behind it.
+static void
+DrawLiveThread(BView* canvas, BPoint p0, BPoint p3, rgb_color color,
+	rgb_color tail, bool active, bigtime_t clock, float phase)
+{
+	BPoint p1(p0.x, p0.y - (p0.y - p3.y) * 0.6f);
+	BPoint p2(p3.x - 30, p3.y + 60);
+	BPoint curve[4] = { p0, p1, p2, p3 };
+	canvas->SetPenSize(1);
+	canvas->SetHighColor(Alpha(color, 50));
+	canvas->StrokeBezier(curve);
+	float t = active ? fmodf((float)(clock % 1600000) / 1600000.0f + phase, 1)
+		: 0.5f;
+	StrokeGradientBezier(canvas, curve, tail, color, 7, 40, t - 0.22f, t);
+	canvas->SetPenSize(2.4f);
+	for (int s = 0; s < 14; s++) {
+		float ta = t - 0.2f * (1 - s / 14.0f);
+		float tb = t - 0.2f * (1 - (s + 1) / 14.0f);
+		if (tb <= 0)
+			continue;
+		canvas->SetHighColor(Alpha(active ? color : kGold,
+			(uint8)(230 * (s + 1) / 14)));
+		canvas->StrokeLine(BezierPoint(curve, std::max(0.0f, ta)),
+			BezierPoint(curve, tb));
+	}
+	canvas->SetPenSize(1);
+	BPoint head = BezierPoint(curve, t);
+	if (active) {
+		DrawGlow(canvas, head, 12, color, 1.2f);
+		float seconds = (float)(clock % 1000000000) / 1000000.0f;
+		for (int k = 1; k <= 5; k++) {
+			float tk = t - 0.022f * k;
+			if (tk <= 0)
+				break;
+			BPoint spark = BezierPoint(curve, tk);
+			float drift = sinf(seconds * 5 + k * 2.1f + phase * 7) * 2.2f * k / 5;
+			spark.x += drift;
+			spark.y -= drift * 0.6f;
+			canvas->SetHighColor(Alpha(Mix(color, kWashi, 0.35f),
+				(uint8)(190 * (1 - k / 6.0f))));
+			float r = 1.6f * (1 - k * 0.12f);
+			canvas->FillEllipse(spark, r, r);
+		}
+		canvas->SetHighColor(Mix(color, kWashi, 0.75f));
+		canvas->FillEllipse(head, 3.2f, 3.2f);
+	}
+}
+
+
 PoolView::PoolView(const Model& model)
 	:
 	InkView("pool"),
@@ -600,8 +651,13 @@ PoolView::_PaintLive(BView* canvas, BRect bounds)
 	BFont small = Mono(10);
 	bigtime_t clock = system_time();
 	BPoint next = area.LeftTop() + BPoint(cellWidth / 2, cellHeight / 2 - 6);
-	int shown = std::min((int)live.recent.size(), capacity - (live.hasJob ? 1 : 0));
-	int first = live.hasJob ? 1 : 0;	// the build in progress takes the first cell
+	// The builds in progress take the first cells: this machine's, then the
+	// x86 VM's
+	bool vmJob = fModel.TwoMachines() && fModel.vmSnapshot.hasJob;
+	int first = (live.hasJob ? 1 : 0) + (vmJob ? 1 : 0);
+	int shown = std::min((int)live.recent.size(), capacity - first);
+	BPoint vmNext = area.LeftTop() + BPoint(cellWidth * ((live.hasJob ? 1 : 0)
+		% columns + 0.5f), cellHeight / 2 - 6);
 	// Packages already there when the list first arrives don't land again.
 	bool initial = fFirstSeen.empty();
 	for (int i = 0; i < shown; i++) {
@@ -667,31 +723,49 @@ PoolView::_PaintLive(BView* canvas, BRect bounds)
 		BPoint(bounds.right - kSide, bounds.bottom - 52));
 	bool active = live.state == kLiveBuilding || live.state == kLiveUploading
 		|| live.state == kLiveReporting;
+	// The x86 VM, beside you, with its build in flight
+	BPoint vmAt(bounds.left + kSide + 130, bounds.bottom - 30);
+	if (fModel.TwoMachines()) {
+		const LiveSnapshot& vm = fModel.vmSnapshot;
+		bool vmActive = !fModel.vmFrozen && (vm.state == kLiveBuilding
+			|| vm.state == kLiveUploading || vm.state == kLiveReporting);
+		if (vmJob) {
+			DrawLiveThread(canvas, vmAt, vmNext, kGold, kFire2, vmActive, clock,
+				0.45f);
+			float pulse = 0.5f + 0.5f * sinf((float)clock / 300000.0f);
+			DrawGlow(canvas, vmNext, 16, kGold, 0.6f + 0.6f * pulse);
+			canvas->SetPenSize(2);
+			canvas->SetHighColor(kGold);
+			canvas->StrokeEllipse(vmNext, kNode + 1, kNode + 1);
+			canvas->SetPenSize(1);
+			canvas->SetFont(&small);
+			canvas->SetHighColor(kGold);
+			BString text(vm.job.port.c_str());
+			small.TruncateString(&text, B_TRUNCATE_END, cellWidth - 8);
+			canvas->DrawString(text.String(), BPoint(vmNext.x
+				- small.StringWidth(text.String()) / 2, vmNext.y + kSealHalf + 14));
+		}
+		if (vmActive)
+			DrawGlow(canvas, vmAt, 20, kGold, 1.0f);
+		BRect box(vmAt.x - 9, vmAt.y - 9, vmAt.x + 9, vmAt.y + 9);
+		canvas->SetPenSize(1.6f);
+		canvas->SetHighColor(kGold);
+		canvas->StrokeRoundRect(box, 4, 4);
+		canvas->FillEllipse(vmAt, 3.5f, 3.5f);
+		canvas->SetPenSize(1);
+		BFont vmBold = Body(12, true);
+		canvas->SetFont(&vmBold);
+		canvas->SetHighColor(vmActive ? kWashi : kMuted);
+		canvas->DrawString("your VM", BPoint(vmAt.x + 16, vmAt.y - 1));
+		BFont vmMono = Mono(9.5f);
+		canvas->SetFont(&vmMono);
+		canvas->SetHighColor(kMuted);
+		canvas->DrawString("x86 \xc2\xb7 NVMM", BPoint(vmAt.x + 16, vmAt.y + 12));
+	}
+
 	if (live.hasJob) {
 		BPoint p0 = you, p3 = next;
-		BPoint p1(p0.x, p0.y - (p0.y - p3.y) * 0.6f);
-		BPoint p2(p3.x - 30, p3.y + 60);
-		BPoint curve[4] = { p0, p1, p2, p3 };
-		canvas->SetPenSize(1);
-		canvas->SetHighColor(Alpha(kFire, 50));
-		canvas->StrokeBezier(curve);
-		// Nobody knows how far a build has got, so the light runs along the
-		// thread instead of creeping up it.
-		float t = active ? (float)(clock % 1600000) / 1600000.0f : 0.5f;
-		canvas->SetPenSize(2.4f);
-		for (int s = 0; s < 14; s++) {
-			float ta = t - 0.2f * (1 - s / 14.0f);
-			float tb = t - 0.2f * (1 - (s + 1) / 14.0f);
-			if (tb <= 0)
-				continue;
-			canvas->SetHighColor(Alpha(active ? kFire : kGold,
-				(uint8)(230 * (s + 1) / 14)));
-			canvas->StrokeLine(Bezier(p0, p1, p2, p3, std::max(0.0f, ta)),
-				Bezier(p0, p1, p2, p3, tb));
-		}
-		if (active)
-			DrawGlow(canvas, Bezier(p0, p1, p2, p3, t), 12, kFire, 1.2f);
-		canvas->SetPenSize(1);
+		DrawLiveThread(canvas, p0, p3, kFire, kSeal, active, clock, 0);
 		float pulse = 0.5f + 0.5f * sinf((float)clock / 250000.0f);
 		canvas->SetHighColor(Alpha(active ? kFire : kGold,
 			(uint8)(60 + 80 * pulse)));
@@ -718,5 +792,6 @@ PoolView::_PaintLive(BView* canvas, BRect bounds)
 	canvas->DrawString("you", BPoint(you.x + 16, you.y + 4));
 	canvas->SetFont(&mono);
 	canvas->SetHighColor(kMuted);
-	canvas->DrawString(live.message.c_str(), BPoint(you.x + 52, you.y + 4));
+	canvas->DrawString(live.message.c_str(), BPoint(fModel.TwoMachines()
+		? vmAt.x + 120 : you.x + 52, you.y + 4));
 }

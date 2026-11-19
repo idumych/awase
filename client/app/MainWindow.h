@@ -5,12 +5,15 @@
 #ifndef AWASE_MAIN_WINDOW_H
 #define AWASE_MAIN_WINDOW_H
 
+#include <Messenger.h>
 #include <Window.h>
 
 #include "DemoPool.h"
 #include "LivePool.h"
 #include "Settings.h"
 #include "Views.h"
+#include "VmService.h"
+#include "VmSetup.h"
 
 
 class BMenuItem;
@@ -32,10 +35,16 @@ private:
 			void				_ShowConnect();
 			void				_UpdateMenu();
 			void				_SaveSettings();
+			void				_ShowVms();
+			// Starts or stops building in the x86 VM to match the settings
+			void				_UpdateVm();
 
 			Settings			fSettings;
 			awase::DemoPool		fPool;
 			awase::LivePool		fLive;
+			awase::VmSetup		fVmSetup;
+			awase::VmService	fVm;
+			BMessenger			fVmWindow;
 			Model				fModel;
 			BMessageRunner*		fTicker;
 			bigtime_t			fLastTick;

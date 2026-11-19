@@ -34,6 +34,12 @@
 namespace awase {
 
 
+// The CA bundle libcurl should use, or NULL for its own: a static awase-tui
+// runs on distributions that keep the bundle elsewhere than its build host.
+const char*		CaBundle();
+
+
+
 enum PortalStatus {
 	kPortalOk,
 	kPortalNoWork,			// 204 from next

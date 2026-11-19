@@ -7,6 +7,8 @@
 
 #include <Rect.h>
 
+#include <string>
+
 #include "LivePool.h"
 #include "Pool.h"
 
@@ -21,6 +23,9 @@ struct Settings {
 			status_t			Save() const;
 
 			bool				CoordinatorReady() const;
+			// The x86 build VM's folder, and whether its setup finished
+			std::string			VmDir() const;
+			bool				VmReady() const;
 
 			BRect				frame;
 			awase::Limits		limits;
@@ -28,6 +33,12 @@ struct Settings {
 			bool				useCoordinator;
 			awase::LiveConfig	coordinator;
 
+			// Building for x86 in a VM (QEMU with NVMM), as its own client
+			bool				vmEnabled;
+			std::string			vmClientId;
+			std::string			vmSecret;
+			int					vmCores;
+			int					vmMemoryMB;
 			int					builds;
 			int					succeeded;
 			int					failed;

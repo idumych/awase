@@ -95,7 +95,7 @@ PlatformFromToken(const std::string& token)
 // libcurl looks for CA certificates where the system it was built on keeps
 // them. A static awase-tui runs on other distributions too, so when that
 // file is missing, use SSL_CERT_FILE or the first common bundle found.
-static const char*
+const char*
 CaBundle()
 {
 	static const std::string sPath = [] {

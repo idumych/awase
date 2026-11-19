@@ -37,6 +37,9 @@ Settings::Settings()
 	:
 	frame(60, 50, 60 + 1100, 50 + 690),
 	useCoordinator(false),
+	vmEnabled(false),
+	vmCores(4),
+	vmMemoryMB(3072),
 	builds(0),
 	succeeded(0),
 	failed(0),
@@ -65,6 +68,26 @@ Settings::CoordinatorReady() const
 {
 	return !coordinator.server.empty() && !coordinator.clientId.empty()
 		&& !coordinator.secret.empty() && !coordinator.buildCommand.empty();
+}
+
+
+std::string
+Settings::VmDir() const
+{
+	BPath path;
+	if (find_directory(B_USER_NONPACKAGED_DATA_DIRECTORY, &path) == B_OK
+		&& path.Append("Awase/vm") == B_OK)
+		return path.Path();
+	return "/boot/home/config/non-packaged/data/Awase/vm";
+}
+
+
+bool
+Settings::VmReady() const
+{
+	struct stat st;
+	return stat((VmDir() + "/ready").c_str(), &st) == 0
+		&& stat((VmDir() + "/disk.img").c_str(), &st) == 0;
 }
 
 
@@ -108,6 +131,15 @@ Settings::Load()
 	if (message.FindInt32("poll seconds", &value) == B_OK && value >= 5)
 		coordinator.pollSeconds = value;
 
+	if (message.FindBool("vm", &flag) == B_OK)
+		vmEnabled = flag;
+	vmClientId = FindString(message, "vm client", vmClientId);
+	vmSecret = FindString(message, "vm secret", vmSecret);
+	if (message.FindInt32("vm cores", &value) == B_OK && value >= 1)
+		vmCores = value;
+	if (message.FindInt32("vm memory", &value) == B_OK && value >= 512)
+		vmMemoryMB = value;
+
 	if (message.FindInt32("builds", &value) == B_OK)
 		builds = value;
 	if (message.FindInt32("succeeded", &value) == B_OK)
@@ -140,6 +172,11 @@ Settings::Save() const
 	message.AddString("build command", coordinator.buildCommand.c_str());
 	message.AddString("work folder", coordinator.workDir.c_str());
 	message.AddInt32("poll seconds", coordinator.pollSeconds);
+	message.AddBool("vm", vmEnabled);
+	message.AddString("vm client", vmClientId.c_str());
+	message.AddString("vm secret", vmSecret.c_str());
+	message.AddInt32("vm cores", vmCores);
+	message.AddInt32("vm memory", vmMemoryMB);
 	message.AddInt32("builds", builds);
 	message.AddInt32("succeeded", succeeded);
 	message.AddInt32("failed", failed);

@@ -94,6 +94,20 @@ HeaderView::MouseMoved(BPoint where, uint32 transit, const BMessage* drag)
 const char*
 HeaderView::_Status(rgb_color& dot, std::string& storage) const
 {
+	if (fModel.TwoMachines()) {
+		bool here = fModel.snapshot.state == kLiveBuilding
+			|| fModel.snapshot.state == kLiveUploading;
+		bool vm = fModel.vmSnapshot.state == kLiveBuilding
+			|| fModel.vmSnapshot.state == kLiveUploading;
+		if (here && vm) {
+			dot = kFire;
+			return "Building on 2 machines";
+		}
+		if (vm && !here) {
+			dot = kFire;
+			return "Building in the x86 VM";
+		}
+	}
 	if (fModel.live) {
 		const LiveSnapshot& live = fModel.snapshot;
 		switch (live.state) {
@@ -279,6 +293,10 @@ NowView::Paint(BView* canvas, BRect bounds)
 	canvas->SetHighColor(kNight2);
 	canvas->FillRect(bounds);
 	Divider(canvas, bounds, true, false);
+	if (fModel.TwoMachines()) {
+		_PaintTwo(canvas, bounds);
+		return;
+	}
 	if (fModel.live) {
 		_PaintLive(canvas, bounds);
 		return;
@@ -554,6 +572,105 @@ NowView::_PaintMessage(BView* canvas, BRect bounds, const char* label,
 		rest.Remove(0, cut);
 		rest.Trim();
 		y += 19;
+	}
+}
+
+
+// This machine and the x86 VM, a row each, in the ring-and-name look of
+// a single build.
+void
+NowView::_PaintTwo(BView* canvas, BRect bounds)
+{
+	DrawLabel(canvas, BPoint(bounds.left + kPad, bounds.top + 30),
+		"NOW BUILDING", kFire2);
+	std::string platform = fModel.snapshot.platform.empty() ? "x86_64"
+		: fModel.snapshot.platform;
+	std::string here = "This machine \xc2\xb7 " + platform;
+	float half = (bounds.Height() - 40) / 2;
+	_PaintMachine(canvas, BRect(bounds.left, bounds.top + 40, bounds.right,
+		bounds.top + 40 + half), fModel.snapshot, here.c_str(), kFire, NULL);
+	canvas->SetHighColor(Alpha(kWashi, 16));
+	canvas->StrokeLine(BPoint(bounds.left + kPad, bounds.top + 40 + half),
+		BPoint(bounds.right - kPad, bounds.top + 40 + half));
+	_PaintMachine(canvas, BRect(bounds.left, bounds.top + 40 + half,
+		bounds.right, bounds.bottom), fModel.vmSnapshot, "Your VM \xc2\xb7 x86",
+		kGold, fModel.vmFrozen ? "NVMM \xc2\xb7 paused" : "NVMM");
+}
+
+
+void
+NowView::_PaintMachine(BView* canvas, BRect frame, const LiveSnapshot& live,
+	const char* who, rgb_color color, const char* extra)
+{
+	float left = frame.left + kPad;
+	BPoint center(left + 30, frame.top + frame.Height() / 2);
+	float radius = 26;
+	bool building = live.hasJob && live.state != kLivePaused;
+
+	// The ring: as for one build, with the glowing tip turning
+	DrawGlow(canvas, center, 52, color, 0.3f);
+	canvas->SetPenSize(5);
+	canvas->SetHighColor(kIndigo);
+	canvas->StrokeEllipse(center, radius, radius);
+	canvas->SetPenSize(1);
+	float turn = building ? (float)(system_time() % 2400000) / 2400000.0f : 0;
+	float start = 90 - 360 * turn;
+	if (live.hasJob) {
+		StrokeGradientArc(canvas, center, radius, start, -110,
+			color == kGold ? kFire2 : kSeal, color, 5);
+		float a = (start - 110) * (float)M_PI / 180;
+		BPoint tip(center.x + radius * cosf(a), center.y - radius * sinf(a));
+		DrawGlow(canvas, tip, 10, color, 1.5f);
+		canvas->SetHighColor(255, 246, 220);
+		canvas->FillEllipse(tip, 2.4f, 2.4f);
+		// Sparks shed from the tip as it turns
+		for (int k = 1; building && k <= 4; k++) {
+			float ak = (start - 110 + k * 9) * (float)M_PI / 180;
+			float r = radius + sinf((float)system_time() / 180000.0f + k) * 2.5f;
+			canvas->SetHighColor(Alpha(Mix(color, kWashi, 0.4f),
+				(uint8)(170 * (1 - k / 5.0f))));
+			canvas->FillEllipse(BPoint(center.x + r * cosf(ak),
+				center.y - r * sinf(ak)), 1.4f - k * 0.2f, 1.4f - k * 0.2f);
+		}
+	}
+	char figure[16];
+	int seconds = (int)live.elapsed;
+	if (!live.hasJob)
+		snprintf(figure, sizeof(figure), "\xe2\x80\x93");
+	else if (seconds < 3600)
+		snprintf(figure, sizeof(figure), "%d:%02d", seconds / 60, seconds % 60);
+	else
+		snprintf(figure, sizeof(figure), "%dh%02d", seconds / 3600,
+			seconds / 60 % 60);
+	BFont fig = Display(13);
+	canvas->SetFont(&fig);
+	canvas->SetHighColor(kWashi);
+	canvas->DrawString(figure, BPoint(center.x - fig.StringWidth(figure) / 2,
+		center.y + 5));
+
+	float x = left + 74, width = frame.right - kPad - x;
+	BFont name = Display(19);
+	canvas->SetFont(&name);
+	canvas->SetHighColor(live.hasJob ? kWashi : kMuted);
+	std::string title = live.hasJob ? live.job.port
+		: live.state == kLivePaused ? "Paused" : live.state == kLiveWaitingIdle
+			? "Waiting for idle" : "Waiting for work";
+	DrawTruncated(canvas, name, title.c_str(), BPoint(x, center.y - 8), width);
+	BFont small = Body(11.5f);
+	canvas->SetFont(&small);
+	canvas->SetHighColor(kWashi2);
+	static const char* kPhases[] = { "fetch", "configure", "compile",
+		"package", "sign" };
+	std::string line = who;
+	if (live.hasJob)
+		line += std::string(" \xc2\xb7 ") + (live.state == kLiveUploading
+			? "upload" : kPhases[std::min((int)live.phase, 4)]);
+	DrawTruncated(canvas, small, line.c_str(), BPoint(x, center.y + 10), width);
+	if (extra != NULL) {
+		BFont mono = Mono(10);
+		canvas->SetFont(&mono);
+		canvas->SetHighColor(color == kGold ? kGold : kMuted);
+		canvas->DrawString(extra, BPoint(x, center.y + 26));
 	}
 }
 
@@ -1020,11 +1137,38 @@ ActivityView::_PaintLive(BView* canvas, BRect bounds)
 	BFont body = Body(12.5f);
 	BFont mono = Mono(10.5f);
 	float y = bounds.top + 62;
-	for (int i = (int)live.events.size() - 1; i >= 0 && y < bounds.bottom - 8;
-		i--) {
-		const LiveEvent& event = live.events[i];
+
+	// This machine's events and the VM's, newest first. Each client counts
+	// time from its own start, so they're merged by age.
+	struct Entry { double age; LiveEvent event; bool vm; };
+	std::vector<Entry> entries;
+	for (size_t i = 0; i < live.events.size(); i++) {
+		Entry e = { live.now - live.events[i].time, live.events[i], false };
+		entries.push_back(e);
+	}
+	if (fModel.TwoMachines()) {
+		const LiveSnapshot& vm = fModel.vmSnapshot;
+		for (size_t i = 0; i < vm.events.size(); i++) {
+			Entry e = { vm.now - vm.events[i].time, vm.events[i], true };
+			e.event.text = "x86 VM: " + e.event.text;
+			entries.push_back(e);
+		}
+	}
+	std::stable_sort(entries.begin(), entries.end(),
+		[](const Entry& a, const Entry& b) { return a.age < b.age; });
+
+	for (size_t i = 0; i < entries.size() && y < bounds.bottom - 8; i++) {
+		const LiveEvent& event = entries[i].event;
 		BPoint mark(left + 8, y - 4);
 		rgb_color text = kWashi;
+		// The newest seal lights up for a few seconds
+		float fresh = 1 - (float)entries[i].age / 4.0f;
+		if (i == 0 && fresh > 0 && event.kind == kLiveSucceeded) {
+			canvas->SetHighColor(Alpha(kSeal, (uint8)(36 * fresh)));
+			canvas->FillRoundRect(BRect(left - 10, y - 17, bounds.right - kPad
+				+ 10, y + 8), 6, 6);
+			DrawGlow(canvas, mark, 16, kSeal, 1.4f * fresh);
+		}
 		switch (event.kind) {
 			case kLiveSucceeded:
 				DrawSeal(canvas, mark, 7);
@@ -1049,7 +1193,7 @@ ActivityView::_PaintLive(BView* canvas, BRect bounds)
 				break;
 		}
 		char ago[24];
-		AgoText(live.now - event.time, ago, sizeof(ago));
+		AgoText(entries[i].age, ago, sizeof(ago));
 		float agoWidth = mono.StringWidth(ago);
 		canvas->SetFont(&body);
 		canvas->SetHighColor(text);
@@ -1060,7 +1204,7 @@ ActivityView::_PaintLive(BView* canvas, BRect bounds)
 		canvas->DrawString(ago, BPoint(bounds.right - kPad - agoWidth, y));
 		y += 27;
 	}
-	if (live.events.empty()) {
+	if (entries.empty()) {
 		canvas->SetFont(&body);
 		canvas->SetHighColor(kMuted);
 		canvas->DrawString("Nothing yet.", BPoint(left, y));

@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "LivePool.h"
+#include "VmService.h"
 
 
 namespace awase {
@@ -27,6 +28,21 @@ struct Model {
 	const awase::DemoPool*	demo;
 	bool					live;
 	awase::LiveSnapshot		snapshot;
+
+	// The x86 build VM
+	bool					vmReady;		// set up
+	bool					vmOn;			// building in it is on
+	awase::VmServiceState	vmState;
+	bool					vmFrozen;
+	std::string				vmMessage;
+	bool					vmSettingUp;
+	double					vmSetupFraction;
+	awase::LiveSnapshot		vmSnapshot;
+
+	// The VM is up and its client running, so there are two machines
+	bool					TwoMachines() const
+								{ return live && vmOn
+									&& vmState == awase::kVmRunning; }
 };
 
 
@@ -101,6 +117,11 @@ protected:
 private:
 			void				_PaintBuilding(BView* canvas, BRect bounds);
 			void				_PaintLive(BView* canvas, BRect bounds);
+			void				_PaintTwo(BView* canvas, BRect bounds);
+			void				_PaintMachine(BView* canvas, BRect frame,
+									const awase::LiveSnapshot& live,
+									const char* who, rgb_color color,
+									const char* extra);
 			void				_PaintWaiting(BView* canvas, BRect bounds,
 									int package);
 			void				_PaintMessage(BView* canvas, BRect bounds,
@@ -160,6 +181,7 @@ private:
 
 			BRect				_Track(Control control) const;
 			BRect				_Segments() const;
+			BRect				_VmButton() const;
 			void				_DragTo(BPoint where);
 			void				_Send(int cores, int temperature, bool idle);
 			void				_PaintSlider(BView* canvas, Control control,
@@ -170,6 +192,7 @@ private:
 			const awase::DemoPool& fPool;
 			Control				fDragging;
 			Control				fHover;
+			bool				fVmHover;
 };
 
 

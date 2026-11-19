@@ -30,11 +30,15 @@ ifeq ($(HAIKU_CROSS)$(filter Haiku,$(UNAME)),)
 VOS := $(shell pkg-config --exists vos 2>/dev/null && echo 1)
 endif
 
+# The x86 build VM (QEMU with NVMM): the app only, not awase-tui
+VM_CORE := core/Download.cpp core/VmHost.cpp core/VmRunner.cpp core/VmSetup.cpp \
+	core/VmService.cpp
 CORE := core/Pool.cpp core/DemoPool.cpp core/Json.cpp core/Sha256.cpp \
-	core/Portal.cpp core/Builder.cpp core/LivePool.cpp core/Thermal.cpp
+	core/Portal.cpp core/Builder.cpp core/LivePool.cpp core/Thermal.cpp \
+	$(VM_CORE)
 APP := app/App.cpp app/ConnectWindow.cpp app/Ink.cpp app/LimitsView.cpp \
 	app/MainWindow.cpp \
-	app/Panels.cpp app/PoolView.cpp app/Settings.cpp
+	app/Panels.cpp app/PoolView.cpp app/Settings.cpp app/VmWindow.cpp
 # Beyond the Haiku API, on every platform: libcurl for the coordinator's API
 APP_LIBS := -lcurl
 
@@ -54,13 +58,13 @@ ifneq ($(HAIKU_CROSS),)
   endif
   # libcurl's own libraries (ssl, zlib, ...) are on the system, not in the sysroot
   override LDFLAGS += -Wl,--allow-shlib-undefined
-  LIBS := -lbe $(APP_LIBS)
+  LIBS := -lbe -lnetwork $(APP_LIBS)
   MIMESET := true
   RESOURCES = $(XRES) -o $@ obj/$(NAME).rsrc
 else ifeq ($(UNAME),Haiku)
   PLATFORM := haiku
   RC := rc
-  LIBS := -lbe $(APP_LIBS)
+  LIBS := -lbe -lnetwork $(APP_LIBS)
   MIMESET := mimeset -f
   RESOURCES = xres -o $@ obj/$(NAME).rsrc
 else ifneq ($(VOS),)
@@ -137,9 +141,10 @@ HOST_CORE := core/Pool.cpp core/DemoPool.cpp
 LIVE_CORE := $(HOST_CORE) core/Json.cpp core/Sha256.cpp core/Portal.cpp \
 	core/Builder.cpp core/LivePool.cpp core/Thermal.cpp
 
-test: objects/core_test objects/live_test
+test: objects/core_test objects/live_test objects/vm_test
 	./objects/core_test
 	sh tests/run-live-test.sh
+	sh tests/run-vm-test.sh
 
 objects/core_test: tests/core_test.cpp $(HOST_CORE) $(wildcard core/*.h)
 	@mkdir -p objects
@@ -149,6 +154,11 @@ objects/live_test: tests/live_test.cpp $(LIVE_CORE) $(wildcard core/*.h)
 	@mkdir -p objects
 	c++ -std=c++17 -O1 -Wall -Wextra -Wno-unused-parameter -pthread -Icore \
 		-o $@ tests/live_test.cpp $(LIVE_CORE) -lcurl
+
+objects/vm_test: tests/vm_test.cpp $(LIVE_CORE) $(VM_CORE) $(wildcard core/*.h)
+	@mkdir -p objects
+	c++ -std=c++17 -O1 -Wall -Wextra -Wno-unused-parameter -pthread -Icore \
+		-o $@ tests/vm_test.cpp $(LIVE_CORE) $(VM_CORE) -lcurl
 
 # The terminal client for Linux servers: awase-tui
 tui: awase-tui

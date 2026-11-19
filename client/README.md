@@ -70,10 +70,53 @@ admin despite a difference) gets an empty frame.
 
 `scripts/awase-mock-build.sh` is a stand-in build command that makes a
 small fake package, for trying the whole path without building anything.
-A real build command for Renku (HaikuPorter) is still to do.
+A real build command for Renku (HaikuPorter) is still to do for this
+machine's own builds; the x86 VM (below) builds with HaikuPorter.
 
 The settings, including the client's secret, are kept in
 `~/config/settings/Awase`, readable only by you.
+
+## Building for x86 too, in a virtual machine
+
+On a 64-bit x86 machine with NVMM (Haiku's hardware virtualization), the
+Renku app can also build the pool's x86 jobs, in a Renku x86_gcc2h VM run
+by QEMU. Choose Pool › Virtual machines… or the "Build x86 too" button. It
+checks the machine first: 64-bit x86, NVMM, memory, free disk (the VM
+takes 20 GB; BFS has no sparse files) and QEMU. Without NVMM it says why
+(usually VT-x or AMD-V switched off in the firmware, or a VM without
+nested virtualization) and sets nothing up: emulated, the VM would be far
+too slow to build for the pool. NVMM runs only x86 code, so x86 is the
+only architecture offered; arm64 and riscv64 aren't.
+
+The VM needs its own build client on the coordinator, made for the x86
+platform: its ID and secret go in the window. Setting up then takes six
+steps, each with its progress:
+
+1. **Install QEMU** from HaikuPorts with pkgman, if it isn't there.
+2. **Check NVMM**: a VM is started for a moment with `-accel nvmm`.
+3. **Download** tonight's Renku x86_gcc2h image and the nightly's
+   x86_gcc2 repository (for `haiku_devel` at exactly the image's version,
+   which HaikuPorter needs and Renku's online repository may not have
+   yet), from Renku's GitHub nightly.
+4. **Check the image**: both SHA-256s against Renku's.
+5. **Install Renku on a 20 GB disk**, unattended, as Haiku's Installer
+   does: Awase copies the image, mounts the copy and adds a one-time
+   launch job. Booted, it formats the VM's disk, copies the system
+   packages and settings (and `haiku_devel`), adds Awase's own SSH key,
+   makes the disk bootable and powers off. The installed VM then boots,
+   and Awase installs HaikuPorter in it over SSH.
+6. **Test build**: zlib, with HaikuPorter, in the VM.
+
+"Build in the VM" then boots it and runs a second coordinator client for
+the x86 build client, whose build command builds the port in the VM with
+HaikuPorter (from the ports repository the coordinator names) and copies
+the packages back. The VM uses 4 cores and 3 GB of memory. It's paused
+whenever building pauses (Pause, "When idle", the temperature limit), and
+powered off on quit, its build given back. The window shows both machines:
+"Now building" gets a ring each, the pool a "your VM" marker with its own
+comet, and the activity both machines' events.
+
+The VM and its files are in `~/config/non-packaged/data/Awase/vm`.
 
 ## awase-tui: the terminal client for Linux servers
 
@@ -141,14 +184,19 @@ core/        portable C++, no Haiku headers:
              Thermal           the CPU's temperature (Renku, Linux)
              LivePool          claim, build, upload, report or give back,
                                on a thread
+             VmHost, VmSetup,  the x86 build VM: the machine's checks, the
+             VmRunner,         six-step setup, running it in QEMU with
+             VmService         NVMM, and building in it as a second client
+             Download          HTTPS downloads with progress
              Json, Sha256
-app/         the Be API app: the window, its hand-drawn views, and the
-             Coordinator window
+app/         the Be API app: the window, its hand-drawn views, the
+             Coordinator window and the Virtual machines window
 tui/         awase-tui, the terminal client for Linux (ncurses), with a
              systemd unit and an example config
 scripts/     awase-mock-build.sh
 tests/       core_test (the rules), live_test (against portal_stub.py,
-             a stand-in for the portal's build-client API)
+             a stand-in for the portal's build-client API), vm_test (the
+             VM setup against a fake release, QEMU and ssh)
 tools/       make-sysroot.sh (cross-building), make-icon.py (the icon),
              release-tui.sh and alpine-sysroot.py (the Linux release)
 ```
