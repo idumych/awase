@@ -12,6 +12,7 @@
 #include <OS.h>
 #include <Path.h>
 
+#include <stdlib.h>
 #include <sys/stat.h>
 
 
@@ -74,11 +75,18 @@ Settings::CoordinatorReady() const
 std::string
 Settings::VmDir() const
 {
+	// The non-packaged data folder on Renku and Haiku; VitruvianOS has none
+	// (find_directory fails), so its user data folder, ~/config/data
 	BPath path;
 	if (find_directory(B_USER_NONPACKAGED_DATA_DIRECTORY, &path) == B_OK
 		&& path.Append("Awase/vm") == B_OK)
 		return path.Path();
-	return "/boot/home/config/non-packaged/data/Awase/vm";
+	if (find_directory(B_USER_DATA_DIRECTORY, &path) == B_OK
+		&& path.Append("Awase/vm") == B_OK)
+		return path.Path();
+	const char* home = getenv("HOME");
+	return std::string(home != NULL ? home : "/tmp")
+		+ "/.local/share/Awase/vm";
 }
 
 

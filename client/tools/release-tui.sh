@@ -43,7 +43,14 @@ for arch in $ARCHS; do
 	sys=$WORK/sysroot-$alpine
 	[ -d "$sys/usr/lib/gcc" ] || python3 -I "$HERE/tools/alpine-sysroot.py" $alpine "$sys" $PKGS
 	triple=$(ls "$sys/usr/lib/gcc" | grep alpine-linux-musl)
-	cc="clang --target=$triple --sysroot=$sys -fuse-ld=lld"
+	# The CPU baseline, set here rather than left to this machine's compiler
+	# defaults (a CachyOS host builds its own packages for x86-64-v3)
+	case $arch in
+		x86) march="-march=i586 -mtune=generic" ;;
+		x86_64) march="-march=x86-64 -mtune=generic" ;;
+		*) march="" ;;
+	esac
+	cc="clang --target=$triple --sysroot=$sys -fuse-ld=lld $march"
 
 	prefix=$WORK/curl-$alpine
 	if [ ! -f "$prefix/lib/libcurl.a" ]; then
@@ -63,7 +70,7 @@ for arch in $ARCHS; do
 	fi
 
 	bin=$WORK/awase-tui-$arch
-	(cd "$HERE" && clang++ --target=$triple --sysroot="$sys" -fuse-ld=lld -static \
+	(cd "$HERE" && clang++ --target=$triple --sysroot="$sys" -fuse-ld=lld -static $march \
 		-std=c++17 -O2 -Wall -Wextra -Wno-unused-parameter -pthread \
 		-DAWASE_STATIC -DCURL_STATICLIB -I"$prefix/include" -Icore -o "$bin" \
 		tui/main.cpp core/Pool.cpp core/DemoPool.cpp core/Json.cpp core/Sha256.cpp \
