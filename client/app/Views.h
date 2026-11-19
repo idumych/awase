@@ -46,6 +46,15 @@ struct Model {
 };
 
 
+// The x86 build VM needs NVMM, which only x86 machines have: the lite
+// build (Renku arm64, make defines AWASE_NO_VM) offers no way to it.
+#ifdef AWASE_NO_VM
+static const bool kHasVm = false;
+#else
+static const bool kHasVm = true;
+#endif
+
+
 enum {
 	kMsgTick = 'tick',
 	kMsgTogglePause = 'paus',

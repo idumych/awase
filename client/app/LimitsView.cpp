@@ -46,7 +46,9 @@ LimitsView::_Track(Control control) const
 {
 	BRect bounds = Bounds();
 	// Room on the right for the x86 VM's control and the When segments
-	float width = std::min(240.0f, (bounds.Width() - kPad * 2 - 600) / 2);
+	float width = kHasVm
+		? std::min(240.0f, (bounds.Width() - kPad * 2 - 600) / 2)
+		: std::min(260.0f, (bounds.Width() - kPad * 2 - 360) / 2);
 	float left = bounds.left + kPad
 		+ (control == kTemperature ? width + 56 : 0);
 	return BRect(left, bounds.top + 52, left + width, bounds.top + 56);
@@ -65,6 +67,8 @@ LimitsView::_Segments() const
 BRect
 LimitsView::_VmButton() const
 {
+	if (!kHasVm)
+		return BRect();		// invalid: nothing to click or draw
 	BRect temperature = _Track(kTemperature);
 	float left = temperature.right + 44;
 	return BRect(left, Bounds().top + 34, std::min(left + 196,
@@ -238,6 +242,7 @@ LimitsView::Paint(BView* canvas, BRect bounds)
 
 	// The x86 VM: its state, and the way to its window
 	BRect vm = _VmButton();
+	if (kHasVm) {
 	const char* vmLabel = fModel.vmReady ? "X86 VM" : "BUILD X86 TOO";
 	DrawLabel(canvas, BPoint(vm.left, vm.top - 8), vmLabel, kMuted);
 	std::string state;
@@ -280,6 +285,7 @@ LimitsView::Paint(BView* canvas, BRect bounds)
 	BString vmText(state.c_str());
 	vmFont.TruncateString(&vmText, B_TRUNCATE_END, vm.Width() - 40);
 	canvas->DrawString(vmText.String(), BPoint(vm.left + 30, vm.top + 21));
+	}
 
 	// When: two segments
 	BRect segments = _Segments();

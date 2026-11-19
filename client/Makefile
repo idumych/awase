@@ -46,7 +46,8 @@ ifneq ($(HAIKU_CROSS),)
   PLATFORM := haiku
   ifneq ($(HAIKU_ARM64),)
     # Renku arm64: tools/haiku-arm64/make-sysroot.sh's env.sh sets CXX and the flags
-    override CXXFLAGS += $(HAIKU_CROSS_CFLAGS)
+    # The lite build: arm64 has no NVMM, so no x86 VM (AWASE_NO_VM)
+    override CXXFLAGS += $(HAIKU_CROSS_CFLAGS) -DAWASE_NO_VM
     override LDFLAGS += $(HAIKU_CROSS_LDFLAGS)
     RC := rc
     XRES := xres

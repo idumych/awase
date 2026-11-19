@@ -75,8 +75,10 @@ MainWindow::MainWindow(const Settings& settings)
 	pool->AddItem(fCoordinatorItem);
 	pool->AddItem(new BMenuItem("Coordinator" B_UTF8_ELLIPSIS,
 		new BMessage(kMsgShowConnect), ',', B_SHIFT_KEY));
-	pool->AddItem(new BMenuItem("Virtual machines" B_UTF8_ELLIPSIS,
-		new BMessage(kMsgShowVms)));
+	if (kHasVm) {
+		pool->AddItem(new BMenuItem("Virtual machines" B_UTF8_ELLIPSIS,
+			new BMessage(kMsgShowVms)));
+	}
 	pool->AddSeparatorItem();
 	pool->AddItem(new BMenuItem("Open the Awase website",
 		new BMessage(kMsgWebsite)));
@@ -181,7 +183,8 @@ MainWindow::MessageReceived(BMessage* message)
 		}
 
 		case kMsgShowVms:
-			_ShowVms();
+			if (kHasVm)
+				_ShowVms();
 			break;
 
 		case kMsgVmSetup:
@@ -364,7 +367,8 @@ MainWindow::_ShowVms()
 void
 MainWindow::_UpdateVm()
 {
-	bool want = fModel.live && fSettings.vmEnabled && fSettings.VmReady()
+	bool want = kHasVm && fModel.live && fSettings.vmEnabled
+		&& fSettings.VmReady()
 		&& !fSettings.vmClientId.empty() && !fSettings.vmSecret.empty()
 		&& !fVmSetup.Running();
 	if (want && !fVm.Active()) {

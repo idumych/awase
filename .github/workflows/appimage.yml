@@ -7,10 +7,10 @@ name: appimage
 # (gh workflow run appimage.yml --ref <branch>) and test those artifacts; on a v* tag it
 # attaches each AppImage to the release only if that file isn't attached yet, so the tested
 # ones that SHA256SUMS describes are kept.
+# Not on tags for now: the AppImages don't ship with Awase 0.3.0 (haiku-app.env
+# PLATFORMS), so a tag mustn't attach them. Put the trigger back when they do.
 on:
   workflow_dispatch:
-  push:
-    tags: ['v*']
 
 permissions:
   contents: write
