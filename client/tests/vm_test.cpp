@@ -143,6 +143,8 @@ Config(const std::string& dir, const std::string& server)
 	config.release = server + "/release.json";
 	config.seed = FakeSeed;
 	config.vm.sshPort = 2299;
+	// BFS has no sparse files: a 20 GB disk would take 20 GB on Haiku
+	config.diskGB = 1;
 	return config;
 }
 
@@ -182,7 +184,7 @@ FullSetup(const std::string& work, const std::string& server)
 
 	struct stat st;
 	CHECK(stat((dir + "/disk.img").c_str(), &st) == 0
-		&& st.st_size == (off_t)20 << 30);
+		&& st.st_size == (off_t)1 << 30);
 	CHECK(stat((dir + "/seed.img").c_str(), &st) != 0);	// removed after use
 	CHECK(stat((dir + "/ready").c_str(), &st) == 0);
 
